@@ -11,14 +11,19 @@ Downloaded_Music/
 
 # Build artifacts
 *.exe
+*.ico
 
 # IDE
 .vscode/
 .idea/
 
-# Auth tokens
+# Auth tokens & credentials
 spotify_auth_token.txt
+download_manager_credentials.json
 
 # Data files
 download_history.json
 download_manager_config.json
+
+# Personal data / CSV logs
+*.csv

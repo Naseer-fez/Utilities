@@ -3,3 +3,10 @@ download_manager_credentials.json
 *.tmp
 __pycache__/
 Downloaded_Music/
+*.csv
+*.ico
+download_history.json
+download_manager_config.json
+build/
+dist/
+*.egg-info/
