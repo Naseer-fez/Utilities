@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-FileFinder - Asset Conversion Helper Script
+QuickFinder - Asset Conversion Helper Script
 Converts source images (PNG, JPG, WebP, etc.) in the assets directory
 into native Windows resource formats (ICO for icon, BMP for logo bitmap).
 """
@@ -39,7 +39,7 @@ def convert_image(source_path, dest_path, fmt):
 
 def main():
     print("============================================")
-    print("  FileFinder - Windows Asset Converter")
+    print("  QuickFinder - Windows Asset Converter")
     print("============================================")
 
     if not check_pillow():

@@ -1,5 +1,5 @@
 /***********************************************************************
- * FileFinder - Main Entry Point
+ * QuickFinder - Main Entry Point
  * 
  * Initializes COM, creates the search engine, starts background
  * indexing, and launches the GUI window.
@@ -23,14 +23,15 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int nCmdShow) {
 
     // Create the search engine
     SearchEngine engine;
-
-    // Start background indexing immediately
+    WordFinderEngine word_engine(&engine);
+    
+    // Start indexer immediately
     engine.StartIndexing();
 
-    // Create and show the GUI
-    MainWindow window(&engine);
+    // Create main window
+    MainWindow window(&engine, &word_engine);
     if (!window.Create(hInstance)) {
-        MessageBoxW(NULL, L"Failed to create window.", L"FileFinder Error", MB_ICONERROR);
+        MessageBoxW(NULL, L"Failed to create window.", L"QuickFinder Error", MB_ICONERROR);
         engine.StopIndexing();
         CoUninitialize();
         return 1;

@@ -1,5 +1,5 @@
 /***********************************************************************
- * FileFinder - GUI Implementation
+ * QuickFinder - GUI Implementation
  * 
  * Revamped, ultra-premium Win32 dark-themed user interface.
  * High-performance double-buffered rendering, glow-active search borders,
@@ -270,8 +270,8 @@ LRESULT CALLBACK ButtonSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
 // MainWindow Implementation
 // =====================================================================
 
-MainWindow::MainWindow(SearchEngine* engine)
-    : engine_(engine) {
+MainWindow::MainWindow(SearchEngine* engine, WordFinderEngine* word_engine)
+    : engine_(engine), word_engine_(word_engine) {
 }
 
 MainWindow::~MainWindow() {
@@ -305,7 +305,7 @@ bool MainWindow::Create(HINSTANCE hInstance) {
     wc.hInstance      = hInstance;
     wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
     wc.hbrBackground = NULL; // Handled in double-buffered WM_PAINT
-    wc.lpszClassName = L"FileFinderWindow";
+    wc.lpszClassName = L"QuickFinderWindow";
     wc.hIcon         = LoadIconW(hInstance, MAKEINTRESOURCEW(IDI_APPICON));
     wc.hIconSm       = LoadIconW(hInstance, MAKEINTRESOURCEW(IDI_APPICON));
 
@@ -320,8 +320,8 @@ bool MainWindow::Create(HINSTANCE hInstance) {
     // Enabled maximize/minimize features natively (WS_OVERLAPPEDWINDOW)
     hwnd_ = CreateWindowExW(
         WS_EX_APPWINDOW,
-        L"FileFinderWindow",
-        L"⚡ FileFinder — Ultra-Fast File Search",
+        L"QuickFinderWindow",
+        L"⚡ QuickFinder — Ultra-Fast File Search",
         WS_OVERLAPPEDWINDOW,
         x, y, GUI::WINDOW_WIDTH, GUI::WINDOW_HEIGHT,
         NULL, NULL, hInstance, this
@@ -431,19 +431,13 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         SetTextColor(memDC, GUI::ACCENT_COLOR);
         SelectObject(memDC, font_title_);
         RECT text_rc = {text_offset_x, 10, w - 20, 45};
-        DrawTextW(memDC, L"⚡ FileFinder", -1, &text_rc, DT_SINGLELINE | DT_VCENTER);
+        DrawTextW(memDC, L"⚡ QuickFinder", -1, &text_rc, DT_SINGLELINE | DT_VCENTER);
 
         // Thin separator below title
         HPEN borderPen = CreatePen(PS_SOLID, 1, GUI::BORDER_COLOR);
         HPEN oldPen = reinterpret_cast<HPEN>(SelectObject(memDC, borderPen));
         MoveToEx(memDC, 0, 50, NULL);
         LineTo(memDC, w, 50);
-
-        // Label above search box
-        SetTextColor(memDC, GUI::TEXT_DIM);
-        SelectObject(memDC, font_main_);
-        RECT label_rc = {20, 56, 300, 74};
-        DrawTextW(memDC, L"Search files by name:", -1, &label_rc, DT_SINGLELINE);
 
         // Focus-reactive glowing search input frame
         bool searchFocused = (GetFocus() == edit_search_);
@@ -453,7 +447,7 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         HBRUSH oldBoxBrush = reinterpret_cast<HBRUSH>(SelectObject(memDC, boxBrush));
         HPEN oldBoxPen = reinterpret_cast<HPEN>(SelectObject(memDC, boxPen));
         
-        RoundRect(memDC, 20, 78, w - 210, 108, 6, 6);
+        RoundRect(memDC, 20, 78, w - 310, 108, 6, 6);
         
         SelectObject(memDC, oldBoxBrush);
         SelectObject(memDC, oldBoxPen);
@@ -465,7 +459,8 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         HBRUSH nullBrush = reinterpret_cast<HBRUSH>(GetStockObject(NULL_BRUSH));
         HBRUSH oldLB = reinterpret_cast<HBRUSH>(SelectObject(memDC, nullBrush));
 
-        Rectangle(memDC, 9, 149, w - 9, h - 39);
+        int lv_y_border = show_advanced_ ? 149 : 119;
+        Rectangle(memDC, 9, lv_y_border, w - 9, h - 39);
 
         SelectObject(memDC, oldLP);
         SelectObject(memDC, oldLB);
@@ -537,6 +532,9 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         else if (LOWORD(wParam) == GUI::ID_OPEN_BTN) {
             OnOpenSelected();
         }
+        else if (LOWORD(wParam) == GUI::ID_ADVANCED_BTN) {
+            ToggleAdvancedSearch();
+        }
         else if (LOWORD(wParam) >= GUI::ID_RADIO_CONTAINS && LOWORD(wParam) <= GUI::ID_CHK_PATH) {
             if (HIWORD(wParam) == BN_CLICKED) {
                 OnSearchChanged();
@@ -556,7 +554,12 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 
     case WM_NOTIFY: {
         NMHDR* hdr = reinterpret_cast<NMHDR*>(lParam);
-        if (hdr->idFrom == GUI::ID_LISTVIEW) {
+        if (hdr->idFrom == GUI::ID_TAB_CONTROL) {
+            if (hdr->code == TCN_SELCHANGE) {
+                OnTabChanged();
+            }
+        }
+        else if (hdr->idFrom == GUI::ID_LISTVIEW) {
             if (hdr->code == NM_DBLCLK) {
                 OnListViewDoubleClick();
             }
@@ -635,7 +638,10 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 
         if (edit_search_) {
             // Sleek borderless edit fits perfectly with vertical padding inside custom rounded frame
-            MoveWindow(edit_search_, 28, 83, w - 246, 20, TRUE);
+            MoveWindow(edit_search_, 28, 83, w - 346, 20, TRUE);
+        }
+        if (btn_advanced_) {
+            MoveWindow(btn_advanced_, w - 300, 78, 90, 30, TRUE);
         }
         if (btn_refresh_) {
             MoveWindow(btn_refresh_, w - 200, 78, 85, 30, TRUE);
@@ -643,9 +649,13 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         if (btn_open_) {
             MoveWindow(btn_open_, w - 105, 78, 85, 30, TRUE);
         }
+        if (tab_control_) {
+            MoveWindow(tab_control_, 20, 56, 250, 25, TRUE);
+        }
         if (listview_) {
             // Adaptive ListView bounds with footer spacing
-            MoveWindow(listview_, 10, 150, w - 20, h - 190, TRUE);
+            int lv_y = show_advanced_ ? 150 : 120;
+            MoveWindow(listview_, 10, lv_y, w - 20, h - lv_y - 40, TRUE);
 
             // Proportional column resizing (35% name, 65% path)
             RECT lv_rc;
@@ -742,6 +752,34 @@ void MainWindow::CreateControls() {
     SendMessageW(edit_search_, EM_SETCUEBANNER, TRUE,
                  reinterpret_cast<LPARAM>(L"Type filename or full path..."));
 
+    // Advanced Options Button
+    btn_advanced_ = CreateWindowExW(
+        0, L"BUTTON", L"⚙ Options",
+        WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+        w - 300, 78, 90, 30, // Initially placed here, repositioned in WM_SIZE
+        hwnd_, reinterpret_cast<HMENU>(GUI::ID_ADVANCED_BTN),
+        hInstance_, NULL
+    );
+    SendMessageW(btn_advanced_, WM_SETFONT, reinterpret_cast<WPARAM>(font_main_), TRUE);
+    SetWindowSubclass(btn_advanced_, ButtonSubclassProc, GUI::ID_ADVANCED_BTN, reinterpret_cast<DWORD_PTR>(this));
+
+    // Tab Control
+    tab_control_ = CreateWindowExW(
+        0, WC_TABCONTROLW, L"",
+        WS_CHILD | WS_CLIPSIBLINGS | WS_VISIBLE | TCS_BUTTONS | TCS_FLATBUTTONS,
+        20, 50, 300, 25,
+        hwnd_, reinterpret_cast<HMENU>(GUI::ID_TAB_CONTROL),
+        hInstance_, NULL
+    );
+    SendMessageW(tab_control_, WM_SETFONT, reinterpret_cast<WPARAM>(font_main_), TRUE);
+    
+    TCITEMW tci = {0};
+    tci.mask = TCIF_TEXT;
+    tci.pszText = const_cast<LPWSTR>(L"QuickFinder");
+    SendMessageW(tab_control_, TCM_INSERTITEMW, 0, reinterpret_cast<LPARAM>(&tci));
+    tci.pszText = const_cast<LPWSTR>(L"WordFinder");
+    SendMessageW(tab_control_, TCM_INSERTITEMW, 1, reinterpret_cast<LPARAM>(&tci));
+
     // Subclass Edit control
     SetWindowSubclass(edit_search_, EditSubclassProc, GUI::ID_SEARCH_EDIT, reinterpret_cast<DWORD_PTR>(this));
 
@@ -770,7 +808,7 @@ void MainWindow::CreateControls() {
     // Create Option Radio Buttons and Checkboxes
     radio_contains_ = CreateWindowExW(
         0, L"BUTTON", L"Contains",
-        WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON | WS_GROUP,
+        WS_CHILD | BS_AUTORADIOBUTTON | WS_GROUP,
         20, 118, 80, 22,
         hwnd_, reinterpret_cast<HMENU>(GUI::ID_RADIO_CONTAINS),
         hInstance_, NULL
@@ -780,7 +818,7 @@ void MainWindow::CreateControls() {
 
     radio_starts_ = CreateWindowExW(
         0, L"BUTTON", L"Starts with",
-        WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON,
+        WS_CHILD | BS_AUTORADIOBUTTON,
         105, 118, 95, 22,
         hwnd_, reinterpret_cast<HMENU>(GUI::ID_RADIO_STARTS),
         hInstance_, NULL
@@ -789,7 +827,7 @@ void MainWindow::CreateControls() {
 
     radio_ends_ = CreateWindowExW(
         0, L"BUTTON", L"Ends with",
-        WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON,
+        WS_CHILD | BS_AUTORADIOBUTTON,
         205, 118, 90, 22,
         hwnd_, reinterpret_cast<HMENU>(GUI::ID_RADIO_ENDS),
         hInstance_, NULL
@@ -798,7 +836,7 @@ void MainWindow::CreateControls() {
 
     radio_exact_ = CreateWindowExW(
         0, L"BUTTON", L"Exact",
-        WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON,
+        WS_CHILD | BS_AUTORADIOBUTTON,
         300, 118, 65, 22,
         hwnd_, reinterpret_cast<HMENU>(GUI::ID_RADIO_EXACT),
         hInstance_, NULL
@@ -807,7 +845,7 @@ void MainWindow::CreateControls() {
 
     chk_case_ = CreateWindowExW(
         0, L"BUTTON", L"Case match",
-        WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+        WS_CHILD | BS_AUTOCHECKBOX,
         375, 118, 100, 22,
         hwnd_, reinterpret_cast<HMENU>(GUI::ID_CHK_CASE),
         hInstance_, NULL
@@ -816,7 +854,7 @@ void MainWindow::CreateControls() {
 
     chk_path_ = CreateWindowExW(
         0, L"BUTTON", L"Search path",
-        WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+        WS_CHILD | BS_AUTOCHECKBOX,
         480, 118, 105, 22,
         hwnd_, reinterpret_cast<HMENU>(GUI::ID_CHK_PATH),
         hInstance_, NULL
@@ -913,7 +951,11 @@ void MainWindow::OnSearchChanged() {
     }
 
     // Normal search
-    engine_->Search(query, results_, opts);
+    if (current_tab_ == 0) {
+        engine_->Search(query, results_, opts);
+    } else {
+        word_engine_->Search(query, results_, opts);
+    }
     UpdateResults();
 }
 
@@ -998,8 +1040,9 @@ void MainWindow::UpdateStatusBar() {
     status_results_ = buf;
 
     // Part 2: Search speed performance metrics
-    if (engine_->GetLastSearchTimeMs() > 0) {
-        swprintf(buf, 256, L" Search: %.2f ms", engine_->GetLastSearchTimeMs());
+    double last_time = (current_tab_ == 0) ? engine_->GetLastSearchTimeMs() : word_engine_->GetLastSearchTimeMs();
+    if (last_time > 0) {
+        swprintf(buf, 256, L" Search: %.2f ms", last_time);
     } else {
         swprintf(buf, 256, L" Ready");
     }
@@ -1039,3 +1082,46 @@ SearchOptions MainWindow::GetSearchOptions() {
 
     return opts;
 }
+
+// ---------------------------------------------------------------------
+// Toggle Advanced Search Options
+// ---------------------------------------------------------------------
+void MainWindow::ToggleAdvancedSearch() {
+    show_advanced_ = !show_advanced_;
+    
+    int cmd = show_advanced_ ? SW_SHOW : SW_HIDE;
+    if (radio_contains_) ShowWindow(radio_contains_, cmd);
+    if (radio_starts_) ShowWindow(radio_starts_, cmd);
+    if (radio_ends_) ShowWindow(radio_ends_, cmd);
+    if (radio_exact_) ShowWindow(radio_exact_, cmd);
+    if (chk_case_) ShowWindow(chk_case_, cmd);
+    if (chk_path_) ShowWindow(chk_path_, cmd);
+    
+    // Trigger WM_SIZE to layout everything again
+    RECT rc;
+    GetClientRect(hwnd_, &rc);
+    SendMessageW(hwnd_, WM_SIZE, 0, MAKELPARAM(rc.right, rc.bottom));
+}
+
+// ---------------------------------------------------------------------
+// Handle Tab Selection Change
+// ---------------------------------------------------------------------
+void MainWindow::OnTabChanged() {
+    int idx = TabCtrl_GetCurSel(tab_control_);
+    if (idx != -1) {
+        current_tab_ = idx;
+        
+        // Change placeholder text based on tab
+        if (current_tab_ == 0) {
+            SendMessageW(edit_search_, EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"Type filename or full path..."));
+        } else {
+            SendMessageW(edit_search_, EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"Type a word to search inside text files..."));
+        }
+        
+        // Force search reload using the active tab engine
+        results_.clear();
+        UpdateResults();
+        OnSearchChanged();
+    }
+}
+

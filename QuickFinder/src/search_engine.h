@@ -1,6 +1,6 @@
 #pragma once
 /***********************************************************************
- * FileFinder - Ultra-Fast Multi-Threaded Search Engine
+ * QuickFinder - Ultra-Fast Multi-Threaded Search Engine
  * 
  * Architecture:
  *   - FileRecord stores dir_index + filename (no path duplication)
@@ -32,10 +32,10 @@
 namespace Config {
     // Maximum number of files in cache (default ~1M files ≈ 50-100MB RAM)
     constexpr uint32_t MAX_CACHE_FILES      = 1'000'000;
-    // Number of crawler threads
-    constexpr uint32_t CRAWLER_THREADS      = 32;
-    // Number of search threads (for querying the cache)
-    constexpr uint32_t SEARCH_THREADS       = 16;
+    // Number of crawler threads (reduced to prevent CPU spikes)
+    constexpr uint32_t CRAWLER_THREADS      = 4;
+    // Number of search threads (reduced to prevent CPU spikes)
+    constexpr uint32_t SEARCH_THREADS       = 4;
     // Maximum results to display in the GUI
     constexpr uint32_t MAX_DISPLAY_RESULTS  = 500;
     // Minimum query length to trigger search
@@ -118,6 +118,8 @@ public:
     // Returns true if the path was valid and Explorer was launched
     bool OpenInExplorer(const std::wstring& path);
 
+    std::wstring BuildFullPath(uint32_t dir_index, const std::wstring& filename) const;
+
     // Case-insensitive substring check (optimized)
     static bool ContainsCI(const wchar_t* haystack, size_t haystack_len,
                            const wchar_t* needle,   size_t needle_len);
@@ -131,11 +133,11 @@ public:
 private:
     // --- Directory storage (shared, append-only) ---
     std::deque<std::wstring>  directories_;
-    SRWLOCK                   dir_lock_;
+    mutable SRWLOCK           dir_lock_;
 
     // --- File records (shared, append-only) ---
     std::vector<FileRecord>   files_;
-    SRWLOCK                   file_lock_;
+    mutable SRWLOCK           file_lock_;
 
     // --- Crawling infrastructure ---
     ThreadSafeQueue           work_queue_;
@@ -162,7 +164,8 @@ private:
     uint32_t    AddDirectory(const std::wstring& path);
     void        AddFile(uint32_t dir_index, const std::wstring& filename);
     void        AddFileBatch(std::vector<FileRecord>& local_batch);
-    std::wstring BuildFullPath(uint32_t dir_index, const std::wstring& filename);
+    
+    friend class WordFinderEngine;
 
     // Static thread entry point
     static DWORD WINAPI CrawlThreadProc(LPVOID param);

@@ -1,5 +1,5 @@
 /***********************************************************************
- * FileFinder - Search Engine Implementation
+ * QuickFinder - Search Engine Implementation
  * 
  * Ultra-optimized multi-threaded file crawler and search engine.
  * Uses raw Win32 FindFirstFileW/FindNextFileW for maximum I/O speed.
@@ -147,8 +147,8 @@ void SearchEngine::StartIndexing() {
             0, NULL
         );
         if (threads_[i]) {
-            // Set high priority for crawler threads
-            SetThreadPriority(threads_[i], THREAD_PRIORITY_ABOVE_NORMAL);
+            // Set lower priority for crawler threads to prevent CPU spikes
+            SetThreadPriority(threads_[i], THREAD_PRIORITY_BELOW_NORMAL);
         }
     }
 }
@@ -280,6 +280,7 @@ void SearchEngine::ProcessDirectory(const std::wstring& dir_path, std::vector<Fi
             // Flush if batch is full
             if (local_batch.size() >= 1000) {
                 AddFileBatch(local_batch);
+                Sleep(1); // Yield to prevent CPU starvation
             }
 
             // Check cache limit periodically
@@ -344,7 +345,7 @@ void SearchEngine::AddFileBatch(std::vector<FileRecord>& local_batch) {
 // ---------------------------------------------------------------------
 // Build full path from dir_index + filename
 // ---------------------------------------------------------------------
-std::wstring SearchEngine::BuildFullPath(uint32_t dir_index, const std::wstring& filename) {
+std::wstring SearchEngine::BuildFullPath(uint32_t dir_index, const std::wstring& filename) const {
     std::wstring path;
     AcquireSRWLockShared(&dir_lock_);
     if (dir_index < directories_.size()) {

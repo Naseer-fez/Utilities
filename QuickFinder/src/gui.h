@@ -1,6 +1,6 @@
 #pragma once
 /***********************************************************************
- * FileFinder - GUI Header
+ * QuickFinder - GUI Header
  * 
  * Lightweight Win32 dark-themed window with:
  *   - Search input box
@@ -18,6 +18,7 @@
 #include <windows.h>
 #include <commctrl.h>
 #include "search_engine.h"
+#include "word_finder_engine.h"
 
 // =====================================================================
 // GUI Constants
@@ -39,6 +40,8 @@ namespace GUI {
     constexpr int ID_RADIO_EXACT    = 1009;
     constexpr int ID_CHK_CASE       = 1010;
     constexpr int ID_CHK_PATH       = 1011;
+    constexpr int ID_TAB_CONTROL    = 1012;
+    constexpr int ID_ADVANCED_BTN   = 1013;
     constexpr int ID_SEARCH_TIMER = 2001;
     constexpr int ID_STATUS_TIMER = 2002;
 
@@ -65,7 +68,7 @@ LRESULT CALLBACK ListViewSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
 // =====================================================================
 class MainWindow {
 public:
-    MainWindow(SearchEngine* engine);
+    MainWindow(SearchEngine* engine, WordFinderEngine* word_engine);
     ~MainWindow();
 
     bool Create(HINSTANCE hInstance);
@@ -92,6 +95,8 @@ private:
     HWND         radio_exact_    = NULL;
     HWND         chk_case_       = NULL;
     HWND         chk_path_       = NULL;
+    HWND         tab_control_    = NULL;
+    HWND         btn_advanced_   = NULL;
     HINSTANCE    hInstance_    = NULL;
 
     // Fonts & brushes
@@ -112,11 +117,14 @@ private:
 
     // Engine reference
     SearchEngine* engine_      = nullptr;
+    WordFinderEngine* word_engine_ = nullptr;
 
     // Current results
     std::vector<SearchResult> results_;
     std::wstring              last_query_;
     SearchOptions             last_opts_;
+    bool                      show_advanced_ = false;
+    int                       current_tab_   = 0; // 0 = QuickFinder, 1 = WordFinder
 
     // Setup helpers
     SearchOptions GetSearchOptions();
@@ -138,4 +146,6 @@ private:
     void OnRefreshIndex();
     void UpdateStatusBar();
     void UpdateResults();
+    void ToggleAdvancedSearch();
+    void OnTabChanged();
 };
