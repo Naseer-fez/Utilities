@@ -1,0 +1,4 @@
+#include "resource.h"
+
+IDI_APPICON ICON "../assets/icon.ico"
+IDB_LOGO BITMAP "../assets/logo.bmp"
