@@ -1,0 +1,143 @@
+uri,track_name,artist,album,attempts,last_error,updated_at
+spotify:local:thiarajxtt:Ghost:Kinni+Kinni:213,Kinni Kinni,thiarajxtt,Ghost,2,"dule_as_main
+  File ""<frozen runpy>"", line 88, in _run_code
+  File ""D:\CODE\AI_ML\venv\Lib\site-packages\spotdl\__main__.py"", line 9, in <module>
+    console_entry_point()
+  File ""D:\CODE\AI_ML\venv\Lib\site-packages\spotdl\console\entry_point.py"", line 53, in console_entry_point
+    entry_point()
+  File ""D:\CODE\AI_ML\venv\Lib\site-packages\spotdl\console\entry_point.py"", line 187, in entry_point
+    downloader.progress_handler.close()
+  File ""D:\CODE\AI_ML\venv\Lib\site-packages\spotdl\download\progress_handler.py"", line 306, in close
+    self.rich_progress_bar.stop()
+  File ""D:\CODE\AI_ML\venv\Lib\site-packages\rich\progress.py"", line 1177, in stop
+    self.live.stop()
+  File ""D:\CODE\AI_ML\venv\Lib\site-packages\rich\live.py"", line 147, in stop
+    with self.console:
+  File ""D:\CODE\AI_ML\venv\Lib\site-packages\rich\console.py"", line 864, in __exit__
+    self._exit_buffer()
+  File ""D:\CODE\AI_ML\venv\Lib\site-packages\rich\console.py"", line 822, in _exit_buffer
+    self._check_buffer()
+  File ""D:\CODE\AI_ML\venv\Lib\site-packages\rich\console.py"", line 2019, in _check_buffer
+    self._write_buffer()
+  File ""D:\CODE\AI_ML\venv\Lib\site-packages\rich\console.py"", line 2055, in _write_buffer
+    legacy_windows_render(buffer, LegacyWindowsTerm(self.file))
+  File ""D:\CODE\AI_ML\venv\Lib\site-packages\rich\_windows_renderer.py"", line 17, in legacy_windows_render
+    term.write_styled(text, style)
+  File ""D:\CODE\AI_ML\venv\Lib\site-packages\rich\_win32_console.py"", line 441, in write_styled
+    self.write_text(text)
+  File ""D:\CODE\AI_ML\venv\Lib\site-packages\rich\_win32_console.py"", line 402, in write_text
+    self.write(text)
+  File ""C:\Users\FEZ NASEER\Codes\Python\3.12\Lib\encodings\cp1252.py"", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f47b' in position 42: character maps to <undefined>",2026-05-07T12:00:58+00:00
+spotify:track:4gBQbegBZlPhMgaWVzCCY5,,,,26,"       use_ytm_data=downloader.settings[""ytm_data""],                  |
+|   28         playlist_numbering=downloader.settings[""playlist_numbering""],  |
+|                                                                             |
+| D:\CODE\AI_ML\venv\Lib\site-packages\spotdl\utils\search.py:251 in          |
+| get_simple_songs                                                            |
+|                                                                             |
+|   248                                                                       |
+|   249                     lists.append(spot_list)                           |
+|   250         elif ""open.spotify.com"" in request and ""track"" in request:    |
+| > 251             songs.append(Song.from_url(url=request))                  |
+|   252         elif ""https://spotify.link/"" in request:                      |
+|   253             resp = requests.head(request, allow_redirects=True, timeo |
+|   254             full_url = resp.url                                       |
+|                                                                             |
+| D:\CODE\AI_ML\venv\Lib\site-packages\spotdl\types\song.py:92 in from_url    |
+|                                                                             |
+|    89             )                                                         |
+|    90                                                                       |
+|    91         if raw_track_meta[""duration_ms""] == 0 or raw_track_meta[""name |
+| >  92             raise SongError(f""Track no longer exists: {url}"")         |
+|    93                                                                       |
+|    94         # get artist info                                             |
+|    95         primary_artist_id = raw_track_meta[""artists""][0][""id""]        |
++-----------------------------------------------------------------------------+
+SongError: Track no longer exists:
+https://open.spotify.com/track/4gBQbegBZlPhMgaWVzCCY5",2026-05-07T12:00:31+00:00
+spotify:track:4hcIkSjuNMYd2bREG38xgH,,,,24,"       use_ytm_data=downloader.settings[""ytm_data""],                  |
+|   28         playlist_numbering=downloader.settings[""playlist_numbering""],  |
+|                                                                             |
+| D:\CODE\AI_ML\venv\Lib\site-packages\spotdl\utils\search.py:251 in          |
+| get_simple_songs                                                            |
+|                                                                             |
+|   248                                                                       |
+|   249                     lists.append(spot_list)                           |
+|   250         elif ""open.spotify.com"" in request and ""track"" in request:    |
+| > 251             songs.append(Song.from_url(url=request))                  |
+|   252         elif ""https://spotify.link/"" in request:                      |
+|   253             resp = requests.head(request, allow_redirects=True, timeo |
+|   254             full_url = resp.url                                       |
+|                                                                             |
+| D:\CODE\AI_ML\venv\Lib\site-packages\spotdl\types\song.py:92 in from_url    |
+|                                                                             |
+|    89             )                                                         |
+|    90                                                                       |
+|    91         if raw_track_meta[""duration_ms""] == 0 or raw_track_meta[""name |
+| >  92             raise SongError(f""Track no longer exists: {url}"")         |
+|    93                                                                       |
+|    94         # get artist info                                             |
+|    95         primary_artist_id = raw_track_meta[""artists""][0][""id""]        |
++-----------------------------------------------------------------------------+
+SongError: Track no longer exists:
+https://open.spotify.com/track/4hcIkSjuNMYd2bREG38xgH",2026-05-07T12:00:30+00:00
+spotify:track:5CSEaABQkS1hoLza0IpK2r,,,,26,"       use_ytm_data=downloader.settings[""ytm_data""],                  |
+|   28         playlist_numbering=downloader.settings[""playlist_numbering""],  |
+|                                                                             |
+| D:\CODE\AI_ML\venv\Lib\site-packages\spotdl\utils\search.py:251 in          |
+| get_simple_songs                                                            |
+|                                                                             |
+|   248                                                                       |
+|   249                     lists.append(spot_list)                           |
+|   250         elif ""open.spotify.com"" in request and ""track"" in request:    |
+| > 251             songs.append(Song.from_url(url=request))                  |
+|   252         elif ""https://spotify.link/"" in request:                      |
+|   253             resp = requests.head(request, allow_redirects=True, timeo |
+|   254             full_url = resp.url                                       |
+|                                                                             |
+| D:\CODE\AI_ML\venv\Lib\site-packages\spotdl\types\song.py:92 in from_url    |
+|                                                                             |
+|    89             )                                                         |
+|    90                                                                       |
+|    91         if raw_track_meta[""duration_ms""] == 0 or raw_track_meta[""name |
+| >  92             raise SongError(f""Track no longer exists: {url}"")         |
+|    93                                                                       |
+|    94         # get artist info                                             |
+|    95         primary_artist_id = raw_track_meta[""artists""][0][""id""]        |
++-----------------------------------------------------------------------------+
+SongError: Track no longer exists:
+https://open.spotify.com/track/5CSEaABQkS1hoLza0IpK2r",2026-05-07T12:00:31+00:00
+spotify:track:6LuePumNTtouPWu5fAA8sy,Матушка,Татьяна Куртукова,У истока,4,"in _run_module_as_main
+  File ""<frozen runpy>"", line 88, in _run_code
+  File ""D:\CODE\AI_ML\venv\Lib\site-packages\spotdl\__main__.py"", line 9, in <module>
+    console_entry_point()
+  File ""D:\CODE\AI_ML\venv\Lib\site-packages\spotdl\console\entry_point.py"", line 53, in console_entry_point
+    entry_point()
+  File ""D:\CODE\AI_ML\venv\Lib\site-packages\spotdl\console\entry_point.py"", line 187, in entry_point
+    downloader.progress_handler.close()
+  File ""D:\CODE\AI_ML\venv\Lib\site-packages\spotdl\download\progress_handler.py"", line 306, in close
+    self.rich_progress_bar.stop()
+  File ""D:\CODE\AI_ML\venv\Lib\site-packages\rich\progress.py"", line 1177, in stop
+    self.live.stop()
+  File ""D:\CODE\AI_ML\venv\Lib\site-packages\rich\live.py"", line 147, in stop
+    with self.console:
+  File ""D:\CODE\AI_ML\venv\Lib\site-packages\rich\console.py"", line 864, in __exit__
+    self._exit_buffer()
+  File ""D:\CODE\AI_ML\venv\Lib\site-packages\rich\console.py"", line 822, in _exit_buffer
+    self._check_buffer()
+  File ""D:\CODE\AI_ML\venv\Lib\site-packages\rich\console.py"", line 2019, in _check_buffer
+    self._write_buffer()
+  File ""D:\CODE\AI_ML\venv\Lib\site-packages\rich\console.py"", line 2055, in _write_buffer
+    legacy_windows_render(buffer, LegacyWindowsTerm(self.file))
+  File ""D:\CODE\AI_ML\venv\Lib\site-packages\rich\_windows_renderer.py"", line 17, in legacy_windows_render
+    term.write_styled(text, style)
+  File ""D:\CODE\AI_ML\venv\Lib\site-packages\rich\_win32_console.py"", line 441, in write_styled
+    self.write_text(text)
+  File ""D:\CODE\AI_ML\venv\Lib\site-packages\rich\_win32_console.py"", line 402, in write_text
+    self.write(text)
+  File ""C:\Users\FEZ NASEER\Codes\Python\3.12\Lib\encodings\cp1252.py"", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode characters in position 8-14: character maps to <undefined>",2026-05-07T12:01:05+00:00

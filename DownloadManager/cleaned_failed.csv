@@ -1,0 +1,6 @@
+uri,track_name,artist,album,attempts,updated_at,Reason
+spotify:local:thiarajxtt:Ghost:Kinni+Kinni:213,Kinni Kinni,thiarajxtt,Ghost,2,2026-05-07T12:00:58+00:00,UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f47b' in position 42: character maps to <undefined>
+spotify:track:4gBQbegBZlPhMgaWVzCCY5,,,,26,2026-05-07T12:00:31+00:00,SongError: Track no longer exists:
+spotify:track:4hcIkSjuNMYd2bREG38xgH,,,,24,2026-05-07T12:00:30+00:00,SongError: Track no longer exists:
+spotify:track:5CSEaABQkS1hoLza0IpK2r,,,,26,2026-05-07T12:00:31+00:00,SongError: Track no longer exists:
+spotify:track:6LuePumNTtouPWu5fAA8sy,Матушка,Татьяна Куртукова,У истока,4,2026-05-07T12:01:05+00:00,UnicodeEncodeError: 'charmap' codec can't encode characters in position 8-14: character maps to <undefined>

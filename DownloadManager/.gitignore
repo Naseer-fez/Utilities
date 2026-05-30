@@ -1,0 +1,5 @@
+spotify_auth_token.txt
+download_manager_credentials.json
+*.tmp
+__pycache__/
+Downloaded_Music/

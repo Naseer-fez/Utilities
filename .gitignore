@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Downloaded content
+Downloaded_Music/
+
+# Build artifacts
+*.exe
+
+# IDE
+.vscode/
+.idea/
+
+# Auth tokens
+spotify_auth_token.txt
+
+# Data files
+download_history.json
+download_manager_config.json

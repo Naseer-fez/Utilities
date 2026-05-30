@@ -1,0 +1,7 @@
+uri,track_name,artist,album,attempts,updated_at,Reason
+spotify:track:4gBQbegBZlPhMgaWVzCCY5,,,,1,2026-05-06T12:34:14+00:00,SongError: Track no longer exists:
+spotify:track:5CSEaABQkS1hoLza0IpK2r,,,,1,2026-05-06T12:34:17+00:00,SongError: Track no longer exists:
+spotify:track:4hcIkSjuNMYd2bREG38xgH,,,,1,2026-05-06T12:36:51+00:00,SongError: Track no longer exists:
+spotify:track:5HCyWlXZPP0y6Gqq8TgA20,STAY (with Justin Bieber),The Kid LAROI;Justin Bieber,STAY (with Justin Bieber),1,2026-05-06T12:36:55+00:00,Rate limit reached
+spotify:track:27NovPIUIRrOZoCHxABJwK,INDUSTRY BABY (feat. Jack Harlow),Lil Nas X;Jack Harlow,INDUSTRY BABY (feat. Jack Harlow),1,2026-05-06T12:36:55+00:00,Rate limit reached
+spotify:track:26XaOsDMbl0e1cVKYfkz6w,Falling,Trevor Daniel,Falling,1,2026-05-06T12:36:55+00:00,Rate limit reached
