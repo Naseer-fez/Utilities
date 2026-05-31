@@ -1,7 +1,6 @@
 #include "wallpaper_host.h"
 #include "utils.h"
-
-// We now use FindWindowEx instead of EnumWindows to avoid hangs on other processes' windows.
+#include <vector>
 
 WallpaperHost::WallpaperHost() {
 }
@@ -42,6 +41,8 @@ void WallpaperHost::Shutdown() {
         m_hWnd = nullptr;
     }
     m_hWorkerW = nullptr;
+    m_hShellDefView = nullptr;
+    m_useLegacyWorkerW = true;
     LOG_INFO("Wallpaper Host shut down.");
 }
 
@@ -51,55 +52,84 @@ bool WallpaperHost::FindWorkerW() {
         LOG_ERROR("Progman window not found.");
         return false;
     }
+    LOG_INFO("Progman window found: %p. Sending 0x052C message...", progman);
 
-    // Send 0x052C to Progman to spawn WorkerW behind icons
+    // Send 0x052C to Progman to spawn/ensure the WorkerW layer
     ULONG_PTR result = 0;
     SendMessageTimeoutW(
         progman,
         0x052C,
         0,
         0,
-        SMTO_NORMAL,
+        SMTO_ABORTIFHUNG,
         1000,
         &result
     );
 
-    // Wait and retry up to 10 times to find the WorkerW window immediately behind the shell desktop icons window
+    LOG_INFO("SendMessageTimeoutW completed. Searching for desktop windows...");
+
+    HWND shellDefView = NULL;
+    HWND parentOfShell = NULL;
     HWND wallpaperWorkerW = NULL;
-    for (int attempt = 0; attempt < 10; ++attempt) {
-        HWND shellDLLWindow = NULL;
-        HWND workerW = NULL;
-        
-        // Find the top-level window holding SHELLDLL_DefView (desktop icons container)
-        while ((workerW = FindWindowExW(NULL, workerW, L"WorkerW", NULL)) != NULL) {
-            if (FindWindowExW(workerW, NULL, L"SHELLDLL_DefView", NULL) != NULL) {
-                shellDLLWindow = workerW;
+
+    // Search for SHELLDLL_DefView under Progman first (Win11 24H2+ check)
+    shellDefView = FindWindowExW(progman, NULL, L"SHELLDLL_DefView", NULL);
+    if (shellDefView) {
+        parentOfShell = progman;
+        LOG_INFO("Found SHELLDLL_DefView as child of Progman: %p", shellDefView);
+    } else {
+        // Fallback: search for SHELLDLL_DefView under top-level WorkerW windows (classic check)
+        HWND workerW = FindWindowExW(NULL, NULL, L"WorkerW", NULL);
+        while (workerW) {
+            shellDefView = FindWindowExW(workerW, NULL, L"SHELLDLL_DefView", NULL);
+            if (shellDefView) {
+                parentOfShell = workerW;
+                LOG_INFO("Found SHELLDLL_DefView under top-level WorkerW: %p (parent: %p)", shellDefView, parentOfShell);
                 break;
             }
+            workerW = FindWindowExW(NULL, workerW, L"WorkerW", NULL);
         }
-        
-        if (!shellDLLWindow) {
-            HWND progmanInstance = FindWindowW(L"Progman", NULL);
-            if (progmanInstance && FindWindowExW(progmanInstance, NULL, L"SHELLDLL_DefView", NULL) != NULL) {
-                shellDLLWindow = progmanInstance;
-            }
-        }
-        
-        if (shellDLLWindow) {
-            // Find the WorkerW sibling immediately behind the shell window in Z-order
-            wallpaperWorkerW = FindWindowExW(NULL, shellDLLWindow, L"WorkerW", NULL);
-            if (wallpaperWorkerW) {
-                m_hWorkerW = wallpaperWorkerW;
-                LOG_INFO("WorkerW background sibling window found after %d attempts.", attempt + 1);
-                break;
-            }
-        }
-        Sleep(100);
     }
 
-    if (!m_hWorkerW) {
-        LOG_WARN("WorkerW sibling not found. Falling back to Progman directly.");
+    if (!shellDefView) {
+        LOG_ERROR("Could not find SHELLDLL_DefView window.");
+        return false;
+    }
+
+    // Now, determine the parent and Z-ordering strategy based on the layout
+    if (parentOfShell == progman) {
+        // Windows 11 24H2+ / Raised desktop mode:
+        // Parent our wallpaper window directly to Progman, and position it after SHELLDLL_DefView
         m_hWorkerW = progman;
+        m_hShellDefView = shellDefView;
+        m_useLegacyWorkerW = false;
+        LOG_INFO("Using Progman parent strategy for Win11 24H2+ (Parent: %p, Insert After: %p)", m_hWorkerW, m_hShellDefView);
+    } else {
+        // Classic Windows 10/11:
+        // Find the sibling WorkerW window that does NOT contain SHELLDLL_DefView
+        HWND workerW = FindWindowExW(NULL, NULL, L"WorkerW", NULL);
+        while (workerW) {
+            if (workerW != parentOfShell) {
+                // Confirm it has no SHELLDLL_DefView
+                if (!FindWindowExW(workerW, NULL, L"SHELLDLL_DefView", NULL)) {
+                    wallpaperWorkerW = workerW;
+                    break;
+                }
+            }
+            workerW = FindWindowExW(NULL, workerW, L"WorkerW", NULL);
+        }
+
+        if (wallpaperWorkerW) {
+            m_hWorkerW = wallpaperWorkerW;
+            m_hShellDefView = NULL;
+            m_useLegacyWorkerW = true;
+            LOG_INFO("Using legacy WorkerW parent strategy (Parent: %p)", m_hWorkerW);
+        } else {
+            LOG_WARN("Legacy WorkerW sibling not found. Falling back to Progman directly.");
+            m_hWorkerW = progman;
+            m_hShellDefView = NULL;
+            m_useLegacyWorkerW = false;
+        }
     }
 
     return m_hWorkerW != nullptr;
@@ -124,11 +154,12 @@ bool WallpaperHost::CreateHostWindow(HINSTANCE hInstance) {
     int cx = GetSystemMetrics(SM_CXVIRTUALSCREEN);
     int cy = GetSystemMetrics(SM_CYVIRTUALSCREEN);
 
+    // Create as child window, parented to WorkerW
     m_hWnd = CreateWindowExW(
         WS_EX_NOACTIVATE,
         L"LiveWallpaperHostClass",
         L"LiveWallpaperHost",
-        WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
+        WS_CHILD | WS_VISIBLE,
         x, y, cx, cy,
         m_hWorkerW,
         NULL,
@@ -158,9 +189,14 @@ bool WallpaperHost::InjectIntoDesktop() {
     int cx = GetSystemMetrics(SM_CXVIRTUALSCREEN);
     int cy = GetSystemMetrics(SM_CYVIRTUALSCREEN);
 
+    HWND hWndInsertAfter = HWND_BOTTOM;
+    if (!m_useLegacyWorkerW && m_hShellDefView) {
+        hWndInsertAfter = m_hShellDefView;
+    }
+
     SetWindowPos(
         m_hWnd,
-        HWND_BOTTOM,
+        hWndInsertAfter,
         x,
         y,
         cx,
@@ -204,6 +240,19 @@ void WallpaperHost::Update() {
             LOG_ERROR("Failed to recover wallpaper host.");
         }
         m_isRecovering = false;
+    } else {
+        // Self-healing: On Windows 11 24H2+, periodically enforce Z-order relative to SHELLDLL_DefView
+        if (!m_useLegacyWorkerW && m_hShellDefView) {
+            SetWindowPos(
+                m_hWnd,
+                m_hShellDefView,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
+            );
+        }
     }
 }
 
@@ -236,7 +285,12 @@ LRESULT CALLBACK WallpaperHost::WndProc(HWND hWnd, UINT message, WPARAM wParam, 
             int y = GetSystemMetrics(SM_YVIRTUALSCREEN);
             int cx = GetSystemMetrics(SM_CXVIRTUALSCREEN);
             int cy = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-            SetWindowPos(hWnd, HWND_BOTTOM, x, y, cx, cy, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+
+            HWND hWndInsertAfter = HWND_BOTTOM;
+            if (pThis && !pThis->m_useLegacyWorkerW && pThis->m_hShellDefView) {
+                hWndInsertAfter = pThis->m_hShellDefView;
+            }
+            SetWindowPos(hWnd, hWndInsertAfter, x, y, cx, cy, SWP_NOACTIVATE | SWP_SHOWWINDOW);
             return 0;
         }
     }

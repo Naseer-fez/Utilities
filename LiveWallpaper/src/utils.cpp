@@ -1,8 +1,10 @@
 #include "utils.h"
 #include <shlobj.h>
+#include <knownfolders.h>
 #include <cstdio>
 #include <ctime>
 #include <vector>
+#include <filesystem>
 
 namespace Utils {
 
@@ -157,6 +159,46 @@ void LogW(LogLevel level, const wchar_t* format, ...) {
     }
 
     LeaveCriticalSection(&g_LogCriticalSection);
+}
+
+std::wstring GetVideosFolderPath() {
+    wchar_t* path = nullptr;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Videos, 0, NULL, &path))) {
+        std::wstring videosPath(path);
+        CoTaskMemFree(path);
+        return videosPath;
+    }
+    // Fallback to environment variable %USERPROFILE%\Videos
+    wchar_t userProfile[MAX_PATH];
+    if (GetEnvironmentVariableW(L"USERPROFILE", userProfile, MAX_PATH) > 0) {
+        return std::wstring(userProfile) + L"\\Videos";
+    }
+    return L"";
+}
+
+std::wstring FindFallbackVideo() {
+    std::wstring videosFolder = GetVideosFolderPath();
+    if (videosFolder.empty()) {
+        return L"";
+    }
+
+    try {
+        if (std::filesystem::exists(videosFolder)) {
+            for (const auto& entry : std::filesystem::recursive_directory_iterator(videosFolder)) {
+                if (entry.is_regular_file()) {
+                    std::wstring ext = entry.path().extension().wstring();
+                    for (auto& c : ext) c = towlower(c);
+                    if (ext == L".mp4") {
+                        return entry.path().wstring();
+                    }
+                }
+            }
+        }
+    } catch (...) {
+        // Ignore access errors during traversal
+    }
+
+    return L"";
 }
 
 } // namespace Utils

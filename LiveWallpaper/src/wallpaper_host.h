@@ -24,8 +24,10 @@ private:
 
     HWND m_hWnd = nullptr;
     HWND m_hWorkerW = nullptr;
+    HWND m_hShellDefView = nullptr;
     HINSTANCE m_hInstance = nullptr;
     DWORD m_lastUpdateTick = 0;
+    bool m_useLegacyWorkerW = true;
     bool m_isRecovering = false;
     bool m_isShuttingDown = false;
 };

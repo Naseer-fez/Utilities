@@ -188,40 +188,49 @@ void RenderEngine::ThreadProc() {
         }
 
         // 4. Update and Render Frame
-        if (m_renderer->GetDevice() && m_renderer->GetContext()) {
+        bool deviceValid = m_renderer->GetDevice() && m_renderer->GetContext();
+        HRESULT hrPresent = S_OK;
+
+        if (deviceValid) {
             m_decoder->UpdateFrame(m_renderer->GetContext().Get());
 
-            HRESULT hrPresent = S_OK;
             if (m_decoder->IsVideoLoaded()) {
                 hrPresent = m_renderer->RenderVideoFrame(
-                    m_decoder->GetShaderResourceView(),
+                    m_decoder->GetSRV_Y(),
+                    m_decoder->GetSRV_UV(),
                     m_decoder->GetVideoWidth(),
                     m_decoder->GetVideoHeight()
                 );
             } else {
                 hrPresent = m_renderer->RenderTestFrame();
             }
+        }
 
-            // Coordinated Device Loss Recovery
-            if (hrPresent == DXGI_ERROR_DEVICE_REMOVED || hrPresent == DXGI_ERROR_DEVICE_RESET) {
-                LOG_WARN("RenderEngine: D3D11 device loss detected (0x%08X). Triggering coordinated recovery...", hrPresent);
-                m_decoder->Shutdown();
-                m_renderer->Shutdown();
-                
-                // Sleep briefly to prevent tight looping in case of persistent device loss
-                Timer::PreciseSleep(100.0);
+        // Coordinated Device Loss Recovery
+        if (!deviceValid || hrPresent == DXGI_ERROR_DEVICE_REMOVED || hrPresent == DXGI_ERROR_DEVICE_RESET) {
+            LOG_WARN("RenderEngine: D3D11 device loss or uninitialized state detected (hrPresent = 0x%08X). Triggering recovery...", hrPresent);
+            m_decoder->Shutdown();
+            m_renderer->Shutdown();
+            
+            // Sleep briefly to prevent tight looping while driver is resetting or reinstating
+            Timer::PreciseSleep(500.0);
 
-                if (m_hWnd) {
-                    if (m_renderer->Initialize(m_hWnd)) {
-                        if (m_decoder->Initialize(m_renderer->GetDevice().Get())) {
+            if (m_hWnd) {
+                LOG_INFO("RenderEngine: Attempting to re-initialize renderer and decoder...");
+                if (m_renderer->Initialize(m_hWnd)) {
+                    if (m_decoder->Initialize(m_renderer->GetDevice().Get())) {
+                        if (!m_videoPath.empty()) {
                             m_decoder->LoadVideo(m_videoPath);
                         }
+                        LOG_INFO("RenderEngine: Recovery successful, rendering resumed.");
+                    } else {
+                        LOG_ERROR("RenderEngine: Failed to re-initialize decoder during recovery.");
+                        m_renderer->Shutdown(); // Ensure resources are shut down so we retry next iteration
                     }
+                } else {
+                    LOG_ERROR("RenderEngine: Failed to re-initialize renderer during recovery.");
                 }
             }
-        } else {
-            // Fallback sleep if renderer is not initialized
-            Timer::PreciseSleep(16.6);
         }
     }
 

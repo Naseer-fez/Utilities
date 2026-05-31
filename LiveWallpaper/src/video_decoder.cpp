@@ -66,119 +66,104 @@ bool VideoDecoder::LoadVideo(const std::wstring& filePath) {
 
     m_filePath = filePath;
 
-    // Robust diagnostic probing of Source Reader attributes combinations
-    struct AttrCombo {
-        const wchar_t* name;
+    struct FallbackOption {
+        const char* name;
         bool useD3DManager;
-        bool useHardwareTransforms;
         bool useVideoProcessing;
     };
 
-    AttrCombo combos[] = {
-        { L"D3D Manager + HW Transforms + Video Processing", true, true, true },
-        { L"D3D Manager + Video Processing", true, false, true },
-        { L"D3D Manager Only", true, false, false },
-        { L"Software (No Attributes)", false, false, false }
+    FallbackOption options[] = {
+        { "D3D Manager + Video Processing", true, true },
+        { "D3D Manager Only", true, false },
+        { "Software + Video Processing", false, true },
+        { "Software (No Attributes)", false, false }
     };
 
+    bool initialized = false;
     HRESULT hr = E_FAIL;
-    int successfulCombo = -1;
 
-    for (int i = 0; i < 4; ++i) {
-        Microsoft::WRL::ComPtr<IMFAttributes> pAltAttributes;
-        int attrCount = 0;
-        if (combos[i].useD3DManager) attrCount++;
-        if (combos[i].useHardwareTransforms) attrCount++;
-        if (combos[i].useVideoProcessing) attrCount++;
+    for (const auto& opt : options) {
+        if (opt.useD3DManager && !m_pDeviceManager) {
+            continue; // Skip hardware options if device manager is not initialized
+        }
+
+        Microsoft::WRL::ComPtr<IMFAttributes> pAttributes;
+        UINT32 attrCount = 0;
+        if (opt.useD3DManager) attrCount++;
+        if (opt.useVideoProcessing) attrCount++;
 
         if (attrCount > 0) {
-            hr = MFCreateAttributes(&pAltAttributes, attrCount);
-            if (SUCCEEDED(hr)) {
-                if (combos[i].useD3DManager) {
-                    pAltAttributes->SetUnknown(MF_SOURCE_READER_D3D_MANAGER, m_pDeviceManager.Get());
-                }
-                if (combos[i].useHardwareTransforms) {
-                    pAltAttributes->SetUINT32(MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, TRUE);
-                }
-                if (combos[i].useVideoProcessing) {
-                    pAltAttributes->SetUINT32(MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, TRUE);
-                }
+            hr = MFCreateAttributes(&pAttributes, attrCount);
+            if (FAILED(hr)) {
+                LOG_WARN("MFCreateAttributes failed for combination: %s. HRESULT: 0x%08X", opt.name, hr);
+                continue;
+            }
+            if (opt.useD3DManager) {
+                pAttributes->SetUnknown(MF_SOURCE_READER_D3D_MANAGER, m_pDeviceManager.Get());
+            }
+            if (opt.useVideoProcessing) {
+                pAttributes->SetUINT32(MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, TRUE);
             }
         }
 
-        hr = MFCreateSourceReaderFromURL(m_filePath.c_str(), pAltAttributes.Get(), &m_pSourceReader);
-        if (SUCCEEDED(hr)) {
-            successfulCombo = i;
-            LOG_INFO_W(L"Successfully created Source Reader with combination: %ls", combos[i].name);
-            break;
-        } else {
-            LOG_WARN_W(L"Source Reader creation failed for combination %ls. HRESULT: 0x%08X", combos[i].name, hr);
-        }
-    }
-
-    if (FAILED(hr) || !m_pSourceReader) {
-        LOG_ERROR_W(L"All Source Reader creation attempts failed for path: %ls.", m_filePath.c_str());
-        return false;
-    }
-
-    // Disable all streams except first video stream (audio stream is disabled to save resources)
-    hr = m_pSourceReader->SetStreamSelection(MF_SOURCE_READER_ALL_STREAMS, FALSE);
-    if (FAILED(hr)) {
-        LOG_ERROR("Failed to disable all streams. HRESULT: 0x%08X", hr);
-        return false;
-    }
-
-    hr = m_pSourceReader->SetStreamSelection(MF_SOURCE_READER_FIRST_VIDEO_STREAM, TRUE);
-    if (FAILED(hr)) {
-        LOG_ERROR("Failed to enable video stream. HRESULT: 0x%08X", hr);
-        return false;
-    }
-
-    // Set output type to RGB32 (so it's converted to standard DXGI_FORMAT_B8G8R8A8_UNORM internally)
-    Microsoft::WRL::ComPtr<IMFMediaType> pType;
-    hr = MFCreateMediaType(&pType);
-    if (FAILED(hr)) {
-        LOG_ERROR("MFCreateMediaType failed. HRESULT: 0x%08X", hr);
-        return false;
-    }
-
-    hr = pType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
-    if (FAILED(hr)) return false;
-
-    hr = pType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32);
-    if (FAILED(hr)) return false;
-
-    hr = m_pSourceReader->SetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM, nullptr, pType.Get());
-    if (FAILED(hr)) {
-        LOG_WARN("SetCurrentMediaType to RGB32 failed on hardware reader. HRESULT: 0x%08X. Falling back to software decoding...", hr);
-        
-        // Recreate Source Reader in Software Mode (no attributes except Video Processing)
-        m_pSourceReader.Reset();
-        
-        Microsoft::WRL::ComPtr<IMFAttributes> pSoftwareAttributes;
-        HRESULT hrSoft = MFCreateAttributes(&pSoftwareAttributes, 1);
-        if (SUCCEEDED(hrSoft)) {
-            pSoftwareAttributes->SetUINT32(MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, TRUE);
-        }
-        
-        hr = MFCreateSourceReaderFromURL(m_filePath.c_str(), pSoftwareAttributes.Get(), &m_pSourceReader);
+        hr = MFCreateSourceReaderFromURL(m_filePath.c_str(), pAttributes.Get(), &m_pSourceReader);
         if (FAILED(hr)) {
-            LOG_ERROR_W(L"Software fallback MFCreateSourceReaderFromURL failed. HRESULT: 0x%08X", hr);
-            return false;
+            LOG_WARN("Source Reader creation failed for combination: %s. HRESULT: 0x%08X", opt.name, hr);
+            m_pSourceReader.Reset();
+            continue;
         }
 
-        // Re-enable only video stream
-        m_pSourceReader->SetStreamSelection(MF_SOURCE_READER_ALL_STREAMS, FALSE);
-        m_pSourceReader->SetStreamSelection(MF_SOURCE_READER_FIRST_VIDEO_STREAM, TRUE);
+        // Disable all streams except first video stream
+        hr = m_pSourceReader->SetStreamSelection(MF_SOURCE_READER_ALL_STREAMS, FALSE);
+        if (FAILED(hr)) {
+            LOG_WARN("Failed to disable all streams for combination: %s. HRESULT: 0x%08X", opt.name, hr);
+            m_pSourceReader.Reset();
+            continue;
+        }
 
-        // Re-set media type to RGB32
+        hr = m_pSourceReader->SetStreamSelection(MF_SOURCE_READER_FIRST_VIDEO_STREAM, TRUE);
+        if (FAILED(hr)) {
+            LOG_WARN("Failed to enable video stream for combination: %s. HRESULT: 0x%08X", opt.name, hr);
+            m_pSourceReader.Reset();
+            continue;
+        }
+
+        // Set output type to NV12
+        Microsoft::WRL::ComPtr<IMFMediaType> pType;
+        hr = MFCreateMediaType(&pType);
+        if (FAILED(hr)) {
+            LOG_WARN("MFCreateMediaType failed for combination: %s. HRESULT: 0x%08X", opt.name, hr);
+            m_pSourceReader.Reset();
+            continue;
+        }
+
+        hr = pType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
+        if (FAILED(hr)) {
+            m_pSourceReader.Reset();
+            continue;
+        }
+
+        hr = pType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_NV12);
+        if (FAILED(hr)) {
+            m_pSourceReader.Reset();
+            continue;
+        }
+
         hr = m_pSourceReader->SetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM, nullptr, pType.Get());
         if (FAILED(hr)) {
-            LOG_ERROR("Software fallback SetCurrentMediaType to RGB32 failed. HRESULT: 0x%08X", hr);
-            return false;
+            LOG_WARN("SetCurrentMediaType to NV12 failed for combination: %s. HRESULT: 0x%08X", opt.name, hr);
+            m_pSourceReader.Reset();
+            continue;
         }
-        
-        LOG_INFO("Successfully fell back to high-performance software decoding with automatic RGB32 conversion.");
+
+        LOG_INFO("Successfully created Source Reader with combination: %s", opt.name);
+        initialized = true;
+        break;
+    }
+
+    if (!initialized || !m_pSourceReader) {
+        LOG_ERROR_W(L"All Source Reader creation attempts failed for path: %ls.", m_filePath.c_str());
+        return false;
     }
 
     // Retrieve video width and height
@@ -201,17 +186,17 @@ bool VideoDecoder::LoadVideo(const std::wstring& filePath) {
 
     LOG_INFO_W(L"Loaded video: %ls (%dx%d)", m_filePath.c_str(), m_videoWidth, m_videoHeight);
 
-    // Create local texture and SRV for rendering
+    // Create local texture and SRVs for rendering
     D3D11_TEXTURE2D_DESC desc = {};
     desc.Width = m_videoWidth;
     desc.Height = m_videoHeight;
     desc.MipLevels = 1;
     desc.ArraySize = 1;
-    desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    desc.Format = DXGI_FORMAT_NV12;
     desc.SampleDesc.Count = 1;
     desc.SampleDesc.Quality = 0;
     desc.Usage = D3D11_USAGE_DEFAULT;
-    desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+    desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
     desc.CPUAccessFlags = 0;
     desc.MiscFlags = 0;
 
@@ -221,15 +206,29 @@ bool VideoDecoder::LoadVideo(const std::wstring& filePath) {
         return false;
     }
 
-    D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-    srvDesc.Format = desc.Format;
-    srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-    srvDesc.Texture2D.MipLevels = 1;
-    srvDesc.Texture2D.MostDetailedMip = 0;
+    // Y plane (Luminance) SRV
+    D3D11_SHADER_RESOURCE_VIEW_DESC srvDescY = {};
+    srvDescY.Format = DXGI_FORMAT_R8_UNORM;
+    srvDescY.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+    srvDescY.Texture2D.MipLevels = 1;
+    srvDescY.Texture2D.MostDetailedMip = 0;
 
-    hr = m_pDevice->CreateShaderResourceView(m_pVideoTexture.Get(), &srvDesc, &m_pVideoSRV);
+    hr = m_pDevice->CreateShaderResourceView(m_pVideoTexture.Get(), &srvDescY, &m_pVideoSRV_Y);
     if (FAILED(hr)) {
-        LOG_ERROR("CreateShaderResourceView for video frame failed. HRESULT: 0x%08X", hr);
+        LOG_ERROR("CreateShaderResourceView for Y plane failed. HRESULT: 0x%08X", hr);
+        return false;
+    }
+
+    // UV plane (Chrominance) SRV
+    D3D11_SHADER_RESOURCE_VIEW_DESC srvDescUV = {};
+    srvDescUV.Format = DXGI_FORMAT_R8G8_UNORM;
+    srvDescUV.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+    srvDescUV.Texture2D.MipLevels = 1;
+    srvDescUV.Texture2D.MostDetailedMip = 0;
+
+    hr = m_pDevice->CreateShaderResourceView(m_pVideoTexture.Get(), &srvDescUV, &m_pVideoSRV_UV);
+    if (FAILED(hr)) {
+        LOG_ERROR("CreateShaderResourceView for UV plane failed. HRESULT: 0x%08X", hr);
         return false;
     }
 
@@ -261,7 +260,8 @@ void VideoDecoder::CloseVideo() {
     }
 
     m_pSourceReader.Reset();
-    m_pVideoSRV.Reset();
+    m_pVideoSRV_Y.Reset();
+    m_pVideoSRV_UV.Reset();
     m_pVideoTexture.Reset();
     m_videoWidth = 0;
     m_videoHeight = 0;
@@ -414,11 +414,33 @@ bool VideoDecoder::UpdateFrame(ID3D11DeviceContext* pContext) {
     }
 
     // Software Fallback: Copy CPU memory buffer to GPU texture
+    Microsoft::WRL::ComPtr<IMF2DBuffer> p2DBuffer;
+    hr = pBuffer.As(&p2DBuffer);
+    if (SUCCEEDED(hr)) {
+        BYTE* pScanline0 = nullptr;
+        LONG pitch = 0;
+        hr = p2DBuffer->Lock2D(&pScanline0, &pitch);
+        if (SUCCEEDED(hr)) {
+            pContext->UpdateSubresource(
+                m_pVideoTexture.Get(),
+                0,
+                nullptr,
+                pScanline0,
+                pitch,
+                0
+            );
+            p2DBuffer->Unlock2D();
+            return true;
+        }
+    }
+
+    // Secondary software fallback: lock standard contiguous buffer
     BYTE* pData = nullptr;
     DWORD cbCurrentLength = 0;
     hr = pBuffer->Lock(&pData, nullptr, &cbCurrentLength);
     if (SUCCEEDED(hr)) {
-        UINT32 rowPitch = m_videoWidth * 4; // B8G8R8A8 format = 4 bytes per pixel
+        // For NV12, the row pitch of the Y plane is m_videoWidth (1 byte per pixel)
+        UINT32 rowPitch = m_videoWidth;
         pContext->UpdateSubresource(
             m_pVideoTexture.Get(),
             0,

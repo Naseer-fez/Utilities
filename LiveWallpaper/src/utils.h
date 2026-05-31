@@ -25,6 +25,8 @@ inline void LogIfFailed(HRESULT hr, const char* context) {
 
 std::wstring GetAppDataPath();
 std::wstring GetLogFilePath();
+std::wstring GetVideosFolderPath();
+std::wstring FindFallbackVideo();
 
 } // namespace Utils
 

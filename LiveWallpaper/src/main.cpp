@@ -37,11 +37,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     // Provide a default fallback if absolutely nothing is saved
     if (playlist.empty()) {
-        videoPath = L"C:\\Users\\FEZ NASEER\\Videos\\Captures\\FIFA 23 2026-03-03 17-44-16.mp4"; // Fallback
-        playlist.push_back(videoPath);
-        config.SetVideoPath(videoPath);
-        config.SetPlaylist(playlist);
-        config.Save();
+        videoPath = Utils::FindFallbackVideo();
+        if (!videoPath.empty()) {
+            playlist.push_back(videoPath);
+            config.SetVideoPath(videoPath);
+            config.SetPlaylist(playlist);
+            config.Save();
+        } else {
+            LOG_INFO("No fallback video found in user's Videos folder. Initializing with empty playlist.");
+        }
     }
 
     size_t currentPlaylistItem = 0;

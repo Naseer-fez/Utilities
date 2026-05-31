@@ -2,6 +2,8 @@
 #include "utils.h"
 #include <cmath>
 #include <d3dcompiler.h>
+#include <dxgi1_2.h>
+
 
 const char* g_vsShader = R"(
 cbuffer AspectRatioBuffer : register(b0) {
@@ -24,7 +26,8 @@ VS_OUTPUT main(uint VertexID : SV_VertexID) {
 )";
 
 const char* g_psShader = R"(
-Texture2D txDiffuse : register(t0);
+Texture2D<float> txY : register(t0);
+Texture2D<float2> txUV : register(t1);
 SamplerState samLinear : register(s0);
 
 struct VS_OUTPUT {
@@ -33,7 +36,19 @@ struct VS_OUTPUT {
 };
 
 float4 main(VS_OUTPUT input) : SV_Target {
-    return txDiffuse.Sample(samLinear, input.TexCoord);
+    float y = txY.Sample(samLinear, input.TexCoord).r;
+    float2 uv = txUV.Sample(samLinear, input.TexCoord).rg;
+
+    // Convert from limited range YUV to RGB (BT.709)
+    y = (y - 16.0f / 255.0f) * (255.0f / 219.0f);
+    float u = (uv.x - 128.0f / 255.0f) * (255.0f / 224.0f);
+    float v = (uv.y - 128.0f / 255.0f) * (255.0f / 224.0f);
+
+    float r = y + 1.5748f * v;
+    float g = y - 0.1873f * u - 0.4681f * v;
+    float b = y + 1.8556f * u;
+
+    return saturate(float4(r, g, b, 1.0f));
 }
 )";
 
@@ -110,20 +125,6 @@ void Renderer::Shutdown() {
 }
 
 bool Renderer::CreateDeviceAndSwapChain() {
-    DXGI_SWAP_CHAIN_DESC scd = { 0 };
-    scd.BufferCount = 2;
-    scd.BufferDesc.Width = m_width;
-    scd.BufferDesc.Height = m_height;
-    scd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    scd.BufferDesc.RefreshRate.Numerator = 60;
-    scd.BufferDesc.RefreshRate.Denominator = 1;
-    scd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    scd.OutputWindow = m_hWnd;
-    scd.SampleDesc.Count = 1;
-    scd.SampleDesc.Quality = 0;
-    scd.Windowed = TRUE;
-    scd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD; // Fast zero-copy on Windows 10/11
-
     D3D_FEATURE_LEVEL featureLevels[] = {
         D3D_FEATURE_LEVEL_11_1,
         D3D_FEATURE_LEVEL_11_0,
@@ -136,7 +137,8 @@ bool Renderer::CreateDeviceAndSwapChain() {
     creationFlags |= D3D11_CREATE_DEVICE_DEBUG;
 #endif
 
-    HRESULT hr = D3D11CreateDeviceAndSwapChain(
+    // 1. Create Device and Context (without Swap Chain)
+    HRESULT hr = D3D11CreateDevice(
         NULL,
         D3D_DRIVER_TYPE_HARDWARE,
         NULL,
@@ -144,17 +146,14 @@ bool Renderer::CreateDeviceAndSwapChain() {
         featureLevels,
         ARRAYSIZE(featureLevels),
         D3D11_SDK_VERSION,
-        &scd,
-        &m_swapChain,
         &m_d3dDevice,
         &supportedLevel,
         &m_d3dContext
     );
 
     if (FAILED(hr)) {
-        LOG_WARN("Hardware D3D11 initialization failed. Falling back to WARP software renderer. HRESULT: 0x%08X", hr);
-        // Fallback to WARP software rasterizer if hardware is unavailable
-        hr = D3D11CreateDeviceAndSwapChain(
+        LOG_WARN("Hardware D3D11 Device creation failed. Falling back to WARP software renderer. HRESULT: 0x%08X", hr);
+        hr = D3D11CreateDevice(
             NULL,
             D3D_DRIVER_TYPE_WARP,
             NULL,
@@ -162,8 +161,6 @@ bool Renderer::CreateDeviceAndSwapChain() {
             featureLevels,
             ARRAYSIZE(featureLevels),
             D3D11_SDK_VERSION,
-            &scd,
-            &m_swapChain,
             &m_d3dDevice,
             &supportedLevel,
             &m_d3dContext
@@ -171,11 +168,76 @@ bool Renderer::CreateDeviceAndSwapChain() {
     }
 
     if (FAILED(hr)) {
-        LOG_ERROR("Failed to create D3D11 device and swap chain (HRESULT = 0x%08X)", hr);
+        LOG_ERROR("Failed to create D3D11 Device (HRESULT = 0x%08X)", hr);
         return false;
     }
 
-    LOG_INFO("Successfully created D3D11 Device (Feature Level = 0x%X)", supportedLevel);
+    LOG_INFO("Successfully created D3D11 Device (Feature Level = 0x%X). Querying DXGI structures...", supportedLevel);
+
+    // 2. Query DXGI Factory to create the Swap Chain
+    Microsoft::WRL::ComPtr<IDXGIDevice> dxgiDevice;
+    hr = m_d3dDevice.As(&dxgiDevice);
+    if (FAILED(hr)) {
+        LOG_ERROR("Failed to query IDXGIDevice. HRESULT = 0x%08X", hr);
+        return false;
+    }
+
+    Microsoft::WRL::ComPtr<IDXGIAdapter> dxgiAdapter;
+    hr = dxgiDevice->GetAdapter(&dxgiAdapter);
+    if (FAILED(hr)) {
+        LOG_ERROR("Failed to get IDXGIAdapter. HRESULT = 0x%08X", hr);
+        return false;
+    }
+
+    Microsoft::WRL::ComPtr<IDXGIFactory2> dxgiFactory;
+    hr = dxgiAdapter->GetParent(IID_PPV_ARGS(&dxgiFactory));
+    if (FAILED(hr)) {
+        LOG_ERROR("Failed to get IDXGIFactory2. HRESULT = 0x%08X", hr);
+        return false;
+    }
+
+    // 3. Setup Swap Chain Description for CreateSwapChainForHwnd
+    DXGI_SWAP_CHAIN_DESC1 scd = { 0 };
+    scd.Width = m_width;
+    scd.Height = m_height;
+    scd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    scd.SampleDesc.Count = 1;
+    scd.SampleDesc.Quality = 0;
+    scd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    scd.BufferCount = 2;
+    scd.Scaling = DXGI_SCALING_STRETCH;
+    scd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD; // Fast zero-copy on Windows 10/11
+    scd.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
+
+    DXGI_SWAP_CHAIN_FULLSCREEN_DESC fsd = { 0 };
+    fsd.RefreshRate.Numerator = 60;
+    fsd.RefreshRate.Denominator = 1;
+    fsd.Scaling = DXGI_MODE_SCALING_UNSPECIFIED;
+    fsd.ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED;
+    fsd.Windowed = TRUE;
+
+    Microsoft::WRL::ComPtr<IDXGISwapChain1> swapChain1;
+    hr = dxgiFactory->CreateSwapChainForHwnd(
+        m_d3dDevice.Get(),
+        m_hWnd,
+        &scd,
+        &fsd,
+        NULL,
+        &swapChain1
+    );
+
+    if (FAILED(hr)) {
+        LOG_ERROR("CreateSwapChainForHwnd failed. HRESULT = 0x%08X", hr);
+        return false;
+    }
+
+    hr = swapChain1.As(&m_swapChain);
+    if (FAILED(hr)) {
+        LOG_ERROR("Failed to query IDXGISwapChain from IDXGISwapChain1. HRESULT = 0x%08X", hr);
+        return false;
+    }
+
+    LOG_INFO("D3D11 Renderer Swap Chain successfully created for HWND.");
     return true;
 }
 
@@ -398,7 +460,7 @@ void Renderer::UpdateAspectRatioCB(int videoWidth, int videoHeight) {
     }
 }
 
-HRESULT Renderer::RenderVideoFrame(ID3D11ShaderResourceView* pVideoSRV, int videoWidth, int videoHeight) {
+HRESULT Renderer::RenderVideoFrame(ID3D11ShaderResourceView* pVideoSRV_Y, ID3D11ShaderResourceView* pVideoSRV_UV, int videoWidth, int videoHeight) {
     if (!m_d3dContext || !m_renderTargetView) return E_FAIL;
 
     // Bind render targets and set viewport
@@ -414,7 +476,7 @@ HRESULT Renderer::RenderVideoFrame(ID3D11ShaderResourceView* pVideoSRV, int vide
     float clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
     Clear(clearColor);
 
-    if (pVideoSRV && videoWidth > 0 && videoHeight > 0) {
+    if (pVideoSRV_Y && pVideoSRV_UV && videoWidth > 0 && videoHeight > 0) {
         // Update aspect ratio scale and offset constants
         UpdateAspectRatioCB(videoWidth, videoHeight);
 
@@ -423,7 +485,10 @@ HRESULT Renderer::RenderVideoFrame(ID3D11ShaderResourceView* pVideoSRV, int vide
         m_d3dContext->PSSetShader(m_pixelShader.Get(), nullptr, 0);
         
         m_d3dContext->VSSetConstantBuffers(0, 1, m_constantBuffer.GetAddressOf());
-        m_d3dContext->PSSetShaderResources(0, 1, &pVideoSRV);
+        
+        // Bind both Y and UV Shader Resource Views to t0 and t1
+        ID3D11ShaderResourceView* srvs[2] = { pVideoSRV_Y, pVideoSRV_UV };
+        m_d3dContext->PSSetShaderResources(0, 2, srvs);
         m_d3dContext->PSSetSamplers(0, 1, m_samplerState.GetAddressOf());
 
         m_d3dContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -431,6 +496,10 @@ HRESULT Renderer::RenderVideoFrame(ID3D11ShaderResourceView* pVideoSRV, int vide
 
         // Draw 3 vertices for our full-screen triangle
         m_d3dContext->Draw(3, 0);
+
+        // Unbind shader resources to prevent pipeline warnings when the decoder updates them next frame
+        ID3D11ShaderResourceView* nullSRVs[2] = { nullptr, nullptr };
+        m_d3dContext->PSSetShaderResources(0, 2, nullSRVs);
     }
 
     return Present();

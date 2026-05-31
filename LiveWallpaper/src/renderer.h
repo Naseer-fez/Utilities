@@ -15,8 +15,8 @@ public:
     // Renders a test frame (color cycling or gradient) and presents it
     HRESULT RenderTestFrame();
     
-    // Renders a video frame texture using a full-screen quad
-    HRESULT RenderVideoFrame(ID3D11ShaderResourceView* pVideoSRV, int videoWidth, int videoHeight);
+    // Renders a video frame texture using a full-screen quad (NV12)
+    HRESULT RenderVideoFrame(ID3D11ShaderResourceView* pVideoSRV_Y, ID3D11ShaderResourceView* pVideoSRV_UV, int videoWidth, int videoHeight);
 
     // Resizes the swap chain buffers
     bool Resize(int width, int height);

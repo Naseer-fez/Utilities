@@ -28,7 +28,8 @@ public:
     void SetPaused(bool paused) { m_isPaused.store(paused); }
 
     // Accessors
-    ID3D11ShaderResourceView* GetShaderResourceView() const { return m_pVideoSRV.Get(); }
+    ID3D11ShaderResourceView* GetSRV_Y() const { return m_pVideoSRV_Y.Get(); }
+    ID3D11ShaderResourceView* GetSRV_UV() const { return m_pVideoSRV_UV.Get(); }
     bool IsVideoLoaded() const { return m_videoLoaded; }
     int GetVideoWidth() const { return m_videoWidth; }
     int GetVideoHeight() const { return m_videoHeight; }
@@ -50,7 +51,8 @@ private:
 
     // Local GPU texture for rendering
     Microsoft::WRL::ComPtr<ID3D11Texture2D> m_pVideoTexture;
-    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_pVideoSRV;
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_pVideoSRV_Y;
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_pVideoSRV_UV;
 
     // Threading & Synchronization
     std::thread m_decodeThread;

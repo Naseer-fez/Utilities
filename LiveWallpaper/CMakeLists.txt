@@ -58,7 +58,6 @@ target_link_libraries(LiveWallpaper PRIVATE
 if(MSVC)
     target_compile_options(LiveWallpaper PRIVATE 
         /W4 
-        /WX 
         /EHsc
         /wd4100 # Unreferenced formal parameter (often common in callbacks)
     )
