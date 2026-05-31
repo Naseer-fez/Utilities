@@ -1,0 +1,11 @@
+{
+  "popup_duration_seconds": 5,
+  "max_history_size": 100,
+  "fade_in_ms": 300,
+  "fade_out_ms": 300,
+  "popup_width": 400,
+  "popup_height": 200,
+  "popup_position": "bottom_right",
+  "enable_sound": false,
+  "log_level": "info"
+}

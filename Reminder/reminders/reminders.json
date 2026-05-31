@@ -1,0 +1,41 @@
+[
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440001",
+    "title": "Drink Water",
+    "message": "Time to hydrate! Take a short break and drink some water.",
+    "time": "2026-05-31T10:00:00",
+    "repeat": {
+      "enabled": true,
+      "interval_minutes": 60,
+      "remaining": 8
+    },
+    "image": null,
+    "enabled": true
+  },
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440002",
+    "title": "Stand Up",
+    "message": "You've been sitting for a while. Stand up and stretch!",
+    "time": "2026-05-31T10:30:00",
+    "repeat": {
+      "enabled": true,
+      "interval_minutes": 45,
+      "remaining": 10
+    },
+    "image": null,
+    "enabled": true
+  },
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440003",
+    "title": "Team Meeting",
+    "message": "Daily standup meeting in 5 minutes.",
+    "time": "2026-05-31T09:55:00",
+    "repeat": {
+      "enabled": false,
+      "interval_minutes": 0,
+      "remaining": 0
+    },
+    "image": null,
+    "enabled": true
+  }
+]

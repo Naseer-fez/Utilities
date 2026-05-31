@@ -27,3 +27,18 @@ download_manager_config.json
 
 # Personal data / CSV logs
 *.csv
+
+# Environment files
+.env
+.env.local
+.env.*
+
+# Dependencies
+node_modules/
+
+# Rust build artifacts
+target/
+**/target/
+Cargo.lock
+
+

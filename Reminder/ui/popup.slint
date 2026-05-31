@@ -1,0 +1,200 @@
+// ui/popup.slint - Glassmorphic modern notification popup layout
+
+export component ReminderPopup inherits Window {
+    no-frame: true;
+    background: transparent;
+    always-on-top: true;
+    width: 420px;
+    height: 140px;
+    default-font-family: "Segoe UI";
+
+    in property <string> title-text: "Drink Water";
+    in property <string> message-text: "Time to hydrate! Take a short break and drink some water.";
+    in property <image> icon-image;
+    in property <bool> has-image: false;
+    in property <float> progress: 1.0; // 1.0 to 0.0
+
+    callback snooze-clicked();
+    callback close-clicked();
+
+    // Main Card Container (Glassmorphic Dark Theme)
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        background: #10121a;
+        border-radius: 12px;
+        border-width: 1px;
+        border-color: #2b3045;
+        clip: true;
+
+        // Subtly glowing top highlight border for premium feel
+        Rectangle {
+            x: 0;
+            y: 0;
+            width: 100%;
+            height: 1px;
+            background: @linear-gradient(90deg, #3b82f600 0%, #3b82f680 50%, #8b5cf600 100%);
+        }
+
+        // Layout dividing content and image
+        HorizontalLayout {
+            padding: 16px;
+            spacing: 16px;
+            alignment: start;
+
+            // Image panel (only visible if has-image is true)
+            if has-image : Rectangle {
+                width: 72px;
+                height: 72px;
+                background: #181b28;
+                border-radius: 8px;
+                border-width: 1px;
+                border-color: #2b3045;
+                clip: true;
+                
+                Image {
+                    source: icon-image;
+                    width: 100%;
+                    height: 100%;
+                    image-fit: cover;
+                }
+            }
+
+            // Fallback Notification Icon (if no image is provided)
+            if !has-image : Rectangle {
+                width: 72px;
+                height: 72px;
+                background: @linear-gradient(135deg, #1d243a 0%, #171a2b 100%);
+                border-radius: 8px;
+                border-width: 1px;
+                border-color: #3b82f633;
+                
+                // Glow effect inside the fallback icon box
+                Rectangle {
+                    width: 100%;
+                    height: 100%;
+                    border-radius: 8px;
+                    background: @radial-gradient(circle, #3b82f626 0%, #3b82f600 70%);
+                }
+
+                // Bell icon
+                Text {
+                    text: "🔔";
+                    font-size: 28px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            // Content Panel (Title, Message, Buttons)
+            VerticalLayout {
+                spacing: 6px;
+                alignment: stretch;
+
+                // Title and Close Button Header
+                HorizontalLayout {
+                    alignment: space-between;
+                    
+                    Text {
+                        text: title-text;
+                        font-size: 16px;
+                        font-weight: 700;
+                        color: #ffffff;
+                    }
+
+                    // Modern close button X
+                    Rectangle {
+                        width: 20px;
+                        height: 20px;
+                        border-radius: 4px;
+                        background: close-touch.has-hover ? #ffffff1a : transparent;
+
+                        Text {
+                            text: "✕";
+                            font-size: 11px;
+                            color: close-touch.has-hover ? #ffffff : #717d96;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        close-touch := TouchArea {
+                            clicked => { close-clicked(); }
+                        }
+                    }
+                }
+
+                // Message Text
+                Text {
+                    text: message-text;
+                    font-size: 12px;
+                    font-weight: 400;
+                    color: #9ab0d3;
+                    wrap: word-wrap;
+                    height: 38px;
+                }
+
+                // Buttons Row
+                HorizontalLayout {
+                    spacing: 12px;
+                    alignment: end;
+                    padding-top: 4px;
+
+                    // Snooze Button
+                    Rectangle {
+                        width: 80px;
+                        height: 26px;
+                        border-radius: 6px;
+                        border-width: 1px;
+                        border-color: snooze-touch.has-hover ? #475569 : #334155;
+                        background: snooze-touch.has-hover ? #1e293b : transparent;
+
+                        Text {
+                            text: "Snooze";
+                            font-size: 12px;
+                            font-weight: 600;
+                            color: snooze-touch.has-hover ? #ffffff : #94a3b8;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        snooze-touch := TouchArea {
+                            clicked => { snooze-clicked(); }
+                        }
+                    }
+
+                    // Done/Dismiss Button
+                    Rectangle {
+                        width: 70px;
+                        height: 26px;
+                        border-radius: 6px;
+                        background: done-touch.has-hover ? 
+                            @linear-gradient(90deg, #4f46e5 0%, #7c3aed 100%) : 
+                            @linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%);
+
+                        Text {
+                            text: "Done";
+                            font-size: 12px;
+                            font-weight: 600;
+                            color: #ffffff;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        done-touch := TouchArea {
+                            clicked => { close-clicked(); }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Animated Draining Progress Bar (Bottom Edge)
+        Rectangle {
+            x: 0;
+            y: parent.height - 4px;
+            width: parent.width * progress;
+            height: 4px;
+            background: @linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%);
+        }
+    }
+}
