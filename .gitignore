@@ -1,44 +1,92 @@
 # Python
 __pycache__/
+**/__pycache__/
 *.pyc
 *.pyo
+*.pyd
+**/*.pyc
+**/*.pyo
+**/*.pyd
 *.egg-info/
+**/ *.egg-info/
+
+# Build and distribution directories
 dist/
+**/dist/
 build/
+**/build/
+bin/
+**/bin/
+obj/
+**/obj/
 
 # Downloaded content
 Downloaded_Music/
 
-# Build artifacts
+# Build artifacts and executables
 *.exe
+**/*.exe
 *.ico
+**/*.ico
 
-# IDE
+# IDEs and Editors
 .vscode/
 .idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
 
 # Auth tokens & credentials
 spotify_auth_token.txt
 download_manager_credentials.json
 
-# Data files
+# Data files, databases, and logs
 download_history.json
 download_manager_config.json
+*.db
+**/*.db
+*.sqlite
+**/*.sqlite
+*.sqlite3
+**/*.sqlite3
+*.log
+**/*.log
+logs/
+**/logs/
 
 # Personal data / CSV logs
 *.csv
+**/*.csv
 
 # Environment files
 .env
 .env.local
 .env.*
+**/.env
+**/.env.local
+**/.env.*
 
-# Dependencies
+# Dependencies (Node, Python venv, Rust)
 node_modules/
-
-# Rust build artifacts
+**/node_modules/
+venv/
+**/venv/
+.venv/
+**/.venv/
+env/
+**/env/
 target/
 **/target/
 Cargo.lock
+**/Cargo.lock
+
+# Temporary/OS files
+.tmp.driveupload/
+**/.tmp.driveupload/
+.DS_Store
+Thumbs.db
+
 
 
