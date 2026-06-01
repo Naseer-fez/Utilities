@@ -95,7 +95,10 @@ void RenderEngine::ThreadProc() {
         }
     }
 
+    Timer frameRateTimer;
     while (m_runThread.load()) {
+        frameRateTimer.Reset();
+
         // 1. Handle HWND Recreation (e.g. Explorer recovery)
         bool recreateNeeded = false;
         HWND targetHWnd = nullptr;
@@ -151,7 +154,9 @@ void RenderEngine::ThreadProc() {
                 w = m_newWidth;
                 h = m_newHeight;
                 m_resizeRequested = false;
-                resizeNeeded = true;
+                if (w != m_renderer->GetWidth() || h != m_renderer->GetHeight()) {
+                    resizeNeeded = true;
+                }
             }
         }
 
@@ -190,19 +195,37 @@ void RenderEngine::ThreadProc() {
         // 4. Update and Render Frame
         bool deviceValid = m_renderer->GetDevice() && m_renderer->GetContext();
         HRESULT hrPresent = S_OK;
+        bool frameUpdated = false;
+        bool forceRedraw = recreateNeeded || changeVideoNeeded || resizeNeeded;
 
         if (deviceValid) {
-            m_decoder->UpdateFrame(m_renderer->GetContext().Get());
-
             if (m_decoder->IsVideoLoaded()) {
-                hrPresent = m_renderer->RenderVideoFrame(
-                    m_decoder->GetSRV_Y(),
-                    m_decoder->GetSRV_UV(),
-                    m_decoder->GetVideoWidth(),
-                    m_decoder->GetVideoHeight()
-                );
+                double waitTimeMs = 0.0;
+                frameUpdated = m_decoder->UpdateFrame(m_renderer->GetContext().Get(), waitTimeMs);
+
+                if (frameUpdated || forceRedraw) {
+                    int fps = m_fpsLimit.load();
+                    UINT syncInterval = (fps == 0) ? 1 : 0; // VSync on only if unlimited
+
+                    hrPresent = m_renderer->RenderVideoFrame(
+                        m_decoder->GetSRV_Y(),
+                        m_decoder->GetSRV_UV(),
+                        m_decoder->GetTextureWidth(),
+                        m_decoder->GetTextureHeight(),
+                        m_decoder->GetVideoWidth(),
+                        m_decoder->GetVideoHeight(),
+                        syncInterval
+                    );
+                } else {
+                    if (waitTimeMs > 0.0) {
+                        // Enforce a minimum sleep of 1ms to prevent rapid loop spinning on sub-millisecond wait times
+                        Timer::PreciseSleep(waitTimeMs < 1.0 ? 1.0 : waitTimeMs);
+                    }
+                }
             } else {
-                hrPresent = m_renderer->RenderTestFrame();
+                int fps = m_fpsLimit.load();
+                UINT syncInterval = (fps == 0) ? 1 : 0; // VSync on only if unlimited
+                hrPresent = m_renderer->RenderTestFrame(syncInterval);
             }
         }
 
@@ -229,6 +252,20 @@ void RenderEngine::ThreadProc() {
                     }
                 } else {
                     LOG_ERROR("RenderEngine: Failed to re-initialize renderer during recovery.");
+                    m_renderer->Shutdown(); // Ensure cleanup of any partial allocations
+                }
+            }
+        }
+
+        // 5. Frame rate limiting
+        int fps = m_fpsLimit.load();
+        if (fps > 0) {
+            bool frameWasRendered = !m_decoder->IsVideoLoaded() || frameUpdated || forceRedraw;
+            if (frameWasRendered) {
+                double targetFrameTimeMs = 1000.0 / fps;
+                double elapsedMs = frameRateTimer.GetElapsedMilliseconds();
+                if (elapsedMs < targetFrameTimeMs) {
+                    Timer::PreciseSleep(targetFrameTimeMs - elapsedMs);
                 }
             }
         }

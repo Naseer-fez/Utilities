@@ -25,21 +25,26 @@ double Timer::GetElapsedMilliseconds() const {
 void Timer::PreciseSleep(double milliseconds) {
     if (milliseconds <= 0.0) return;
 
-    LARGE_INTEGER freq;
-    QueryPerformanceFrequency(&freq);
+    // Try to use modern Windows 10+ high-resolution waitable timer.
+    HANDLE hTimer = CreateWaitableTimerExW(
+        NULL, NULL, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS
+    );
 
-    LARGE_INTEGER start, current;
-    QueryPerformanceCounter(&start);
-
-    double targetTicks = milliseconds * freq.QuadPart / 1000.0;
-
-    // Yield CPU for the bulk of the wait if it's long enough
-    if (milliseconds > 2.0) {
-        Sleep(static_cast<DWORD>(milliseconds - 1.0));
+    if (hTimer) {
+        LARGE_INTEGER dueTime;
+        dueTime.QuadPart = static_cast<LONGLONG>(-milliseconds * 10000.0); // 100ns intervals
+        if (SetWaitableTimer(hTimer, &dueTime, 0, NULL, NULL, 0)) {
+            WaitForSingleObject(hTimer, INFINITE);
+            CloseHandle(hTimer);
+            return;
+        }
+        CloseHandle(hTimer);
     }
 
-    // Spin-lock the rest of the way for microsecond accuracy
-    do {
-        QueryPerformanceCounter(&current);
-    } while (static_cast<double>(current.QuadPart - start.QuadPart) < targetTicks);
+    // Fallback if high-res timer is not available (e.g. older Windows versions)
+    if (milliseconds >= 1.0) {
+        Sleep(static_cast<DWORD>(milliseconds));
+    } else {
+        Sleep(0); // Yield thread
+    }
 }

@@ -102,16 +102,19 @@ bool Renderer::Initialize(HWND hWnd) {
 
     if (!CreateDeviceAndSwapChain()) {
         LOG_ERROR("Failed to create D3D11 Device and Swap Chain.");
+        Shutdown();
         return false;
     }
 
     if (!CreateRenderTargetView()) {
         LOG_ERROR("Failed to create Render Target View.");
+        Shutdown();
         return false;
     }
 
     if (!InitializeShaders()) {
         LOG_ERROR("Failed to initialize quad shaders.");
+        Shutdown();
         return false;
     }
 
@@ -276,14 +279,14 @@ void Renderer::Clear(const float color[4]) {
     }
 }
 
-HRESULT Renderer::Present() {
+HRESULT Renderer::Present(UINT syncInterval) {
     if (m_swapChain) {
-        return m_swapChain->Present(1, 0); // VSync enabled
+        return m_swapChain->Present(syncInterval, 0);
     }
     return S_FALSE;
 }
 
-HRESULT Renderer::RenderTestFrame() {
+HRESULT Renderer::RenderTestFrame(UINT syncInterval) {
     // Generate HSL color based on cycled hue
     m_hue += 0.002f;
     if (m_hue > 1.0f) m_hue -= 1.0f;
@@ -301,7 +304,7 @@ HRESULT Renderer::RenderTestFrame() {
     m_d3dContext->OMSetRenderTargets(1, m_renderTargetView.GetAddressOf(), NULL);
 
     Clear(clearColor);
-    return Present();
+    return Present(syncInterval);
 }
 
 bool Renderer::Resize(int width, int height) {
@@ -428,8 +431,8 @@ bool Renderer::InitializeShaders() {
     return true;
 }
 
-void Renderer::UpdateAspectRatioCB(int videoWidth, int videoHeight) {
-    if (!m_d3dContext || !m_constantBuffer || videoWidth <= 0 || videoHeight <= 0) return;
+void Renderer::UpdateAspectRatioCB(int textureWidth, int textureHeight, int videoWidth, int videoHeight) {
+    if (!m_d3dContext || !m_constantBuffer || videoWidth <= 0 || videoHeight <= 0 || textureWidth <= 0 || textureHeight <= 0) return;
 
     float videoAspect = (float)videoWidth / videoHeight;
     float windowAspect = (float)m_width / m_height;
@@ -452,6 +455,15 @@ void Renderer::UpdateAspectRatioCB(int videoWidth, int videoHeight) {
         cbData.uvOffset[1] = (1.0f - scale) / 2.0f;
     }
 
+    // Scale by the ratio of active video size to allocated texture size (discarding padding)
+    float textureRatioX = (float)videoWidth / textureWidth;
+    float textureRatioY = (float)videoHeight / textureHeight;
+
+    cbData.uvScale[0] *= textureRatioX;
+    cbData.uvOffset[0] *= textureRatioX;
+    cbData.uvScale[1] *= textureRatioY;
+    cbData.uvOffset[1] *= textureRatioY;
+
     D3D11_MAPPED_SUBRESOURCE mappedResource;
     HRESULT hr = m_d3dContext->Map(m_constantBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
     if (SUCCEEDED(hr)) {
@@ -460,7 +472,15 @@ void Renderer::UpdateAspectRatioCB(int videoWidth, int videoHeight) {
     }
 }
 
-HRESULT Renderer::RenderVideoFrame(ID3D11ShaderResourceView* pVideoSRV_Y, ID3D11ShaderResourceView* pVideoSRV_UV, int videoWidth, int videoHeight) {
+HRESULT Renderer::RenderVideoFrame(
+    ID3D11ShaderResourceView* pVideoSRV_Y, 
+    ID3D11ShaderResourceView* pVideoSRV_UV, 
+    int textureWidth, 
+    int textureHeight, 
+    int videoWidth, 
+    int videoHeight, 
+    UINT syncInterval
+) {
     if (!m_d3dContext || !m_renderTargetView) return E_FAIL;
 
     // Bind render targets and set viewport
@@ -472,13 +492,9 @@ HRESULT Renderer::RenderVideoFrame(ID3D11ShaderResourceView* pVideoSRV_Y, ID3D11
     m_d3dContext->RSSetViewports(1, &vp);
     m_d3dContext->OMSetRenderTargets(1, m_renderTargetView.GetAddressOf(), NULL);
 
-    // Clear backbuffer to solid black
-    float clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-    Clear(clearColor);
-
-    if (pVideoSRV_Y && pVideoSRV_UV && videoWidth > 0 && videoHeight > 0) {
+    if (pVideoSRV_Y && pVideoSRV_UV && videoWidth > 0 && videoHeight > 0 && textureWidth > 0 && textureHeight > 0) {
         // Update aspect ratio scale and offset constants
-        UpdateAspectRatioCB(videoWidth, videoHeight);
+        UpdateAspectRatioCB(textureWidth, textureHeight, videoWidth, videoHeight);
 
         // Bind Shaders and States
         m_d3dContext->VSSetShader(m_vertexShader.Get(), nullptr, 0);
@@ -502,5 +518,5 @@ HRESULT Renderer::RenderVideoFrame(ID3D11ShaderResourceView* pVideoSRV_Y, ID3D11
         m_d3dContext->PSSetShaderResources(0, 2, nullSRVs);
     }
 
-    return Present();
+    return Present(syncInterval);
 }

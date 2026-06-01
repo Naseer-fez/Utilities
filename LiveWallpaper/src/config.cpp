@@ -45,6 +45,7 @@ bool Config::Load() {
 
     m_rotationIntervalMinutes = GetPrivateProfileIntW(L"Settings", L"RotationInterval", 0, path.c_str());
     m_idleTimeoutMinutes = GetPrivateProfileIntW(L"Settings", L"IdleTimeout", 5, path.c_str());
+    m_fpsLimit = GetPrivateProfileIntW(L"Settings", L"FPSLimit", 0, path.c_str());
 
     return true;
 }
@@ -75,6 +76,11 @@ bool Config::Save() {
     swprintf_s(idleStr, L"%d", m_idleTimeoutMinutes);
     WritePrivateProfileStringW(L"Settings", L"IdleTimeout", idleStr, path.c_str());
 
+    // Save FPS Limit
+    wchar_t fpsStr[32];
+    swprintf_s(fpsStr, L"%d", m_fpsLimit);
+    WritePrivateProfileStringW(L"Settings", L"FPSLimit", fpsStr, path.c_str());
+
     return true;
 }
 
@@ -96,6 +102,10 @@ void Config::SetRotationIntervalMinutes(int minutes) {
 
 void Config::SetIdleTimeoutMinutes(int minutes) {
     m_idleTimeoutMinutes = minutes;
+}
+
+void Config::SetFPSLimit(int fps) {
+    m_fpsLimit = fps;
 }
 
 void Config::RemoveFromPlaylist(size_t index) {

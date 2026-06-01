@@ -19,6 +19,10 @@
 #define IDM_INTERVAL_15MIN 1010
 #define IDM_INTERVAL_30MIN 1011
 #define IDM_PLAYLIST_MANAGE 1012
+#define IDM_FPS_UNLIMITED 1020
+#define IDM_FPS_60 1021
+#define IDM_FPS_30 1022
+#define IDM_FPS_15 1023
 
 TrayIcon::TrayIcon() {}
 
@@ -114,6 +118,10 @@ void TrayIcon::SetIntervalCallback(std::function<void(int)> cb) {
     m_onSetInterval = cb;
 }
 
+void TrayIcon::SetFPSLimitCallback(std::function<void(int)> cb) {
+    m_onSetFPSLimit = cb;
+}
+
 void TrayIcon::UpdatePauseState(bool isPaused) {
     m_isPaused = isPaused;
 }
@@ -124,6 +132,10 @@ void TrayIcon::UpdateRotationInterval(int minutes) {
 
 void TrayIcon::UpdateHasPlaylist(bool hasPlaylist) {
     m_hasPlaylist = hasPlaylist;
+}
+
+void TrayIcon::UpdateFPSLimit(int fps) {
+    m_fpsLimit = fps;
 }
 
 void TrayIcon::ShowContextMenu() {
@@ -156,8 +168,21 @@ void TrayIcon::ShowContextMenu() {
     InsertMenuW(hPlaylistMenu, -1, MF_BYPOSITION | MF_STRING | check15, IDM_INTERVAL_15MIN, L"Every 15 Minutes");
     InsertMenuW(hPlaylistMenu, -1, MF_BYPOSITION | MF_STRING | check30, IDM_INTERVAL_30MIN, L"Every 30 Minutes");
 
+    // Create cascading submenu for FPS Limit
+    HMENU hFPSMenu = CreatePopupMenu();
+    UINT checkFpsUnlimited = (m_fpsLimit == 0) ? MF_CHECKED : MF_UNCHECKED;
+    UINT checkFps60 = (m_fpsLimit == 60) ? MF_CHECKED : MF_UNCHECKED;
+    UINT checkFps30 = (m_fpsLimit == 30) ? MF_CHECKED : MF_UNCHECKED;
+    UINT checkFps15 = (m_fpsLimit == 15) ? MF_CHECKED : MF_UNCHECKED;
+
+    InsertMenuW(hFPSMenu, -1, MF_BYPOSITION | MF_STRING | checkFpsUnlimited, IDM_FPS_UNLIMITED, L"Unlimited (VSync)");
+    InsertMenuW(hFPSMenu, -1, MF_BYPOSITION | MF_STRING | checkFps60, IDM_FPS_60, L"60 FPS");
+    InsertMenuW(hFPSMenu, -1, MF_BYPOSITION | MF_STRING | checkFps30, IDM_FPS_30, L"30 FPS");
+    InsertMenuW(hFPSMenu, -1, MF_BYPOSITION | MF_STRING | checkFps15, IDM_FPS_15, L"15 FPS");
+
     HMENU hMenu = CreatePopupMenu();
     InsertMenuW(hMenu, -1, MF_BYPOSITION | MF_POPUP, (UINT_PTR)hPlaylistMenu, L"Playlist");
+    InsertMenuW(hMenu, -1, MF_BYPOSITION | MF_POPUP, (UINT_PTR)hFPSMenu, L"FPS Limit");
     InsertMenuW(hMenu, -1, MF_BYPOSITION | MF_STRING, IDM_CHANGE_VIDEO, L"Change Video...");
     InsertMenuW(hMenu, -1, MF_BYPOSITION | MF_STRING, IDM_TOGGLE_PAUSE, m_isPaused ? L"Resume" : L"Pause");
     InsertMenuW(hMenu, -1, MF_BYPOSITION | MF_SEPARATOR, 0, NULL);
@@ -206,6 +231,18 @@ void TrayIcon::ShowContextMenu() {
             break;
         case IDM_INTERVAL_30MIN:
             if (m_onSetInterval) m_onSetInterval(30);
+            break;
+        case IDM_FPS_UNLIMITED:
+            if (m_onSetFPSLimit) m_onSetFPSLimit(0);
+            break;
+        case IDM_FPS_60:
+            if (m_onSetFPSLimit) m_onSetFPSLimit(60);
+            break;
+        case IDM_FPS_30:
+            if (m_onSetFPSLimit) m_onSetFPSLimit(30);
+            break;
+        case IDM_FPS_15:
+            if (m_onSetFPSLimit) m_onSetFPSLimit(15);
             break;
     }
 }

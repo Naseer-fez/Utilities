@@ -21,10 +21,12 @@ public:
     void SetManagePlaylistCallback(std::function<void()> cb);
     void SetNextVideoCallback(std::function<void()> cb);
     void SetIntervalCallback(std::function<void(int)> cb);
+    void SetFPSLimitCallback(std::function<void(int)> cb);
 
     void UpdatePauseState(bool isPaused);
     void UpdateRotationInterval(int minutes);
     void UpdateHasPlaylist(bool hasPlaylist);
+    void UpdateFPSLimit(int fps);
 
 private:
     static LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
@@ -38,6 +40,7 @@ private:
     bool m_isPaused = false;
     int m_rotationIntervalMinutes = 0;
     bool m_hasPlaylist = false;
+    int m_fpsLimit = 0;
 
     std::function<void(const std::wstring&)> m_onChangeVideo;
     std::function<void(bool)> m_onTogglePause;
@@ -49,4 +52,5 @@ private:
     std::function<void()> m_onManagePlaylist;
     std::function<void()> m_onNextVideo;
     std::function<void(int)> m_onSetInterval;
+    std::function<void(int)> m_onSetFPSLimit;
 };

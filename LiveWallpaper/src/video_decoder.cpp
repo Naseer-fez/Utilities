@@ -187,50 +187,18 @@ bool VideoDecoder::LoadVideo(const std::wstring& filePath) {
     LOG_INFO_W(L"Loaded video: %ls (%dx%d)", m_filePath.c_str(), m_videoWidth, m_videoHeight);
 
     // Create local texture and SRVs for rendering
-    D3D11_TEXTURE2D_DESC desc = {};
-    desc.Width = m_videoWidth;
-    desc.Height = m_videoHeight;
-    desc.MipLevels = 1;
-    desc.ArraySize = 1;
-    desc.Format = DXGI_FORMAT_NV12;
-    desc.SampleDesc.Count = 1;
-    desc.SampleDesc.Quality = 0;
-    desc.Usage = D3D11_USAGE_DEFAULT;
-    desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-    desc.CPUAccessFlags = 0;
-    desc.MiscFlags = 0;
-
-    hr = m_pDevice->CreateTexture2D(&desc, nullptr, &m_pVideoTexture);
-    if (FAILED(hr)) {
-        LOG_ERROR("CreateTexture2D for video frame failed. HRESULT: 0x%08X", hr);
+    if (!ReallocateVideoTexture(m_videoWidth, m_videoHeight)) {
         return false;
     }
 
-    // Y plane (Luminance) SRV
-    D3D11_SHADER_RESOURCE_VIEW_DESC srvDescY = {};
-    srvDescY.Format = DXGI_FORMAT_R8_UNORM;
-    srvDescY.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-    srvDescY.Texture2D.MipLevels = 1;
-    srvDescY.Texture2D.MostDetailedMip = 0;
+    // Reset playback timeline
+    m_playbackTimeMs = 0.0;
+    m_currentFrameTimestamp = -1.0;
+    m_playbackTimer.Reset();
 
-    hr = m_pDevice->CreateShaderResourceView(m_pVideoTexture.Get(), &srvDescY, &m_pVideoSRV_Y);
-    if (FAILED(hr)) {
-        LOG_ERROR("CreateShaderResourceView for Y plane failed. HRESULT: 0x%08X", hr);
-        return false;
-    }
-
-    // UV plane (Chrominance) SRV
-    D3D11_SHADER_RESOURCE_VIEW_DESC srvDescUV = {};
-    srvDescUV.Format = DXGI_FORMAT_R8G8_UNORM;
-    srvDescUV.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-    srvDescUV.Texture2D.MipLevels = 1;
-    srvDescUV.Texture2D.MostDetailedMip = 0;
-
-    hr = m_pDevice->CreateShaderResourceView(m_pVideoTexture.Get(), &srvDescUV, &m_pVideoSRV_UV);
-    if (FAILED(hr)) {
-        LOG_ERROR("CreateShaderResourceView for UV plane failed. HRESULT: 0x%08X", hr);
-        return false;
-    }
+    m_pActiveSRV_Y = m_pVideoSRV_Y;
+    m_pActiveSRV_UV = m_pVideoSRV_UV;
+    m_pActiveSample.Reset();
 
     // Start decoding thread
     m_runThread = true;
@@ -254,17 +222,87 @@ void VideoDecoder::CloseVideo() {
     }
 
     {
-        std::lock_guard<std::mutex> lock(m_sampleMutex);
-        m_pLatestSample.Reset();
-        m_bNewSampleAvailable = false;
+        std::lock_guard<std::mutex> lock(m_queueMutex);
+        while (!m_sampleQueue.empty()) {
+            m_sampleQueue.pop();
+        }
     }
 
     m_pSourceReader.Reset();
     m_pVideoSRV_Y.Reset();
     m_pVideoSRV_UV.Reset();
     m_pVideoTexture.Reset();
+    m_pActiveSRV_Y.Reset();
+    m_pActiveSRV_UV.Reset();
+    m_pActiveSample.Reset();
     m_videoWidth = 0;
     m_videoHeight = 0;
+    m_videoTextureWidth = 0;
+    m_videoTextureHeight = 0;
+}
+
+void VideoDecoder::SetPaused(bool paused) {
+    if (m_isPaused.load() && !paused) {
+        // Transition from paused to resumed: reset the playback timer
+        // to prevent large elapsed time jumps.
+        m_playbackTimer.Reset();
+    }
+    m_isPaused.store(paused);
+}
+
+bool VideoDecoder::ReallocateVideoTexture(int width, int height) {
+    m_pVideoSRV_Y.Reset();
+    m_pVideoSRV_UV.Reset();
+    m_pVideoTexture.Reset();
+
+    D3D11_TEXTURE2D_DESC desc = {};
+    desc.Width = width;
+    desc.Height = height;
+    desc.MipLevels = 1;
+    desc.ArraySize = 1;
+    desc.Format = DXGI_FORMAT_NV12;
+    desc.SampleDesc.Count = 1;
+    desc.SampleDesc.Quality = 0;
+    desc.Usage = D3D11_USAGE_DEFAULT;
+    desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    desc.CPUAccessFlags = 0;
+    desc.MiscFlags = 0;
+
+    HRESULT hr = m_pDevice->CreateTexture2D(&desc, nullptr, &m_pVideoTexture);
+    if (FAILED(hr)) {
+        LOG_ERROR("ReallocateVideoTexture CreateTexture2D failed. HRESULT: 0x%08X", hr);
+        return false;
+    }
+
+    D3D11_SHADER_RESOURCE_VIEW_DESC srvDescY = {};
+    srvDescY.Format = DXGI_FORMAT_R8_UNORM;
+    srvDescY.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+    srvDescY.Texture2D.MipLevels = 1;
+    srvDescY.Texture2D.MostDetailedMip = 0;
+
+    hr = m_pDevice->CreateShaderResourceView(m_pVideoTexture.Get(), &srvDescY, &m_pVideoSRV_Y);
+    if (FAILED(hr)) {
+        LOG_ERROR("ReallocateVideoTexture CreateShaderResourceView Y failed. HRESULT: 0x%08X", hr);
+        return false;
+    }
+
+    D3D11_SHADER_RESOURCE_VIEW_DESC srvDescUV = {};
+    srvDescUV.Format = DXGI_FORMAT_R8G8_UNORM;
+    srvDescUV.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+    srvDescUV.Texture2D.MipLevels = 1;
+    srvDescUV.Texture2D.MostDetailedMip = 0;
+
+    hr = m_pDevice->CreateShaderResourceView(m_pVideoTexture.Get(), &srvDescUV, &m_pVideoSRV_UV);
+    if (FAILED(hr)) {
+        LOG_ERROR("ReallocateVideoTexture CreateShaderResourceView UV failed. HRESULT: 0x%08X", hr);
+        return false;
+    }
+
+    m_videoTextureWidth = width;
+    m_videoTextureHeight = height;
+
+    LOG_INFO("Reallocated local video texture to match hardware/software frame size: %dx%d", width, height);
+    return true;
 }
 
 void VideoDecoder::DecodingThreadProc() {
@@ -275,16 +313,29 @@ void VideoDecoder::DecodingThreadProc() {
         LOG_ERROR("CoInitializeEx failed in background decoding thread. HRESULT: 0x%08X", hrCOM);
     }
 
-    Timer timer;
-    double timerOffset = 0.0;
-    bool wasPaused = false;
-
     while (m_runThread) {
         if (m_isPaused.load()) {
-            wasPaused = true;
             Timer::PreciseSleep(100.0);
             continue;
         }
+
+        // Wait if the queue is full to avoid decoding too far ahead
+        while (m_runThread && !m_isPaused.load()) {
+            size_t queueSize = 0;
+            {
+                std::lock_guard<std::mutex> lock(m_queueMutex);
+                queueSize = m_sampleQueue.size();
+            }
+            if (queueSize < 5) { // Maximum of 5 frames buffered
+                break;
+            }
+            Timer::PreciseSleep(5.0);
+        }
+
+        if (!m_runThread) {
+            break;
+        }
+
         DWORD streamIndex = 0;
         DWORD flags = 0;
         LONGLONG timestamp = 0;
@@ -310,6 +361,9 @@ void VideoDecoder::DecodingThreadProc() {
         if (flags & MF_SOURCE_READERF_ENDOFSTREAM) {
             LOG_INFO("Reached end of video stream. Looping...");
             
+            // Flush decoder pipeline to release DXVA2 buffers and prevent VRAM accumulation
+            m_pSourceReader->Flush(MF_SOURCE_READER_FIRST_VIDEO_STREAM);
+
             PROPVARIANT var;
             PropVariantInit(&var);
             var.vt = VT_I8;
@@ -321,39 +375,12 @@ void VideoDecoder::DecodingThreadProc() {
             if (FAILED(hr)) {
                 LOG_ERROR("SetCurrentPosition(0) failed. HRESULT: 0x%08X", hr);
             }
-
-            timer.Reset();
-            timerOffset = 0.0;
             continue;
         }
 
         if (pSample) {
-            // Safe pacing logic
-            double sampleTimeMs = static_cast<double>(timestamp) / 10000.0;
-
-            if (wasPaused) {
-                timerOffset = timer.GetElapsedMilliseconds() - sampleTimeMs;
-                wasPaused = false;
-            }
-
-            double elapsedMs = timer.GetElapsedMilliseconds() - timerOffset;
-
-            if (sampleTimeMs > elapsedMs) {
-                double sleepMs = sampleTimeMs - elapsedMs;
-                // Safe guard limit for unexpected timestamp leaps
-                if (sleepMs > 2000.0) {
-                    sleepMs = 33.3;
-                    timerOffset = timer.GetElapsedMilliseconds() - sampleTimeMs;
-                }
-                Timer::PreciseSleep(sleepMs);
-            }
-
-            // Expose the latest decoded sample to the render thread safely
-            {
-                std::lock_guard<std::mutex> lock(m_sampleMutex);
-                m_pLatestSample = pSample;
-                m_bNewSampleAvailable = true;
-            }
+            std::lock_guard<std::mutex> lock(m_queueMutex);
+            m_sampleQueue.push(pSample);
         } else {
             // Sleep briefly when no sample is fetched but no end-of-stream reached yet
             Timer::PreciseSleep(2.0);
@@ -366,28 +393,92 @@ void VideoDecoder::DecodingThreadProc() {
     }
 }
 
-bool VideoDecoder::UpdateFrame(ID3D11DeviceContext* pContext) {
+bool VideoDecoder::UpdateFrame(ID3D11DeviceContext* pContext, double& outWaitTimeMs) {
+    outWaitTimeMs = 0.0;
     if (!m_videoLoaded || !m_pVideoTexture) return false;
 
-    Microsoft::WRL::ComPtr<IMFSample> pSample;
-    bool hasNewSample = false;
 
-    {
-        std::lock_guard<std::mutex> lock(m_sampleMutex);
-        if (m_bNewSampleAvailable) {
-            pSample = m_pLatestSample;
-            m_bNewSampleAvailable = false;
-            hasNewSample = true;
-        }
-    }
 
-    if (!hasNewSample || !pSample) {
+    // Advance playback time based on elapsed clock time since the last rendered frame
+    double elapsed = m_playbackTimer.GetElapsedMilliseconds();
+
+    if (m_isPaused.load()) {
         return false;
     }
 
+    if (m_currentFrameTimestamp >= 0.0) {
+        m_playbackTimeMs = m_currentFrameTimestamp + elapsed;
+    } else {
+        m_playbackTimeMs += elapsed;
+        m_playbackTimer.Reset();
+    }
+
+    Microsoft::WRL::ComPtr<IMFSample> pSelectedSample;
+    bool hasNewFrame = false;
+
+    {
+        std::lock_guard<std::mutex> lock(m_queueMutex);
+        
+        while (!m_sampleQueue.empty()) {
+            auto& frontSample = m_sampleQueue.front();
+            LONGLONG hnsTimestamp = 0;
+            if (FAILED(frontSample->GetSampleTime(&hnsTimestamp))) {
+                m_sampleQueue.pop();
+                continue;
+            }
+            
+            double sampleTimeMs = static_cast<double>(hnsTimestamp) / 10000.0;
+            
+            // First frame: display immediately and align playback timer
+            if (m_currentFrameTimestamp < 0.0) {
+                m_playbackTimeMs = sampleTimeMs;
+                m_currentFrameTimestamp = sampleTimeMs;
+                pSelectedSample = frontSample;
+                m_sampleQueue.pop();
+                hasNewFrame = true;
+                continue;
+            }
+            
+            // Check for loop transition:
+            // If the next frame's timestamp is less than the current frame's timestamp,
+            // then the video must have looped.
+            if (sampleTimeMs < m_currentFrameTimestamp) {
+                m_playbackTimeMs = sampleTimeMs; // Reset playback time to match the new loop start
+                m_currentFrameTimestamp = sampleTimeMs;
+                pSelectedSample = frontSample;
+                m_sampleQueue.pop();
+                hasNewFrame = true;
+                continue; // Continue checking if we need to catch up
+            }
+            
+            if (m_playbackTimeMs >= sampleTimeMs) {
+                pSelectedSample = frontSample;
+                m_currentFrameTimestamp = sampleTimeMs;
+                m_sampleQueue.pop();
+                hasNewFrame = true;
+            } else {
+                // Next frame is in the future, stop popping and calculate wait time
+                outWaitTimeMs = sampleTimeMs - m_playbackTimeMs;
+                break;
+            }
+        }
+
+        if (!hasNewFrame && m_sampleQueue.empty()) {
+            // Queue is empty, wait a default short duration (e.g. 2.0ms) to let decoder thread decode.
+            outWaitTimeMs = 2.0;
+        }
+    }
+
+    if (!hasNewFrame || !pSelectedSample) {
+        return false;
+    }
+
+    // Reset the playback timer to anchor the elapsed time for the next frame
+    m_playbackTimer.Reset();
+
     // Extract the buffer out of the MF sample
     Microsoft::WRL::ComPtr<IMFMediaBuffer> pBuffer;
-    HRESULT hr = pSample->GetBufferByIndex(0, &pBuffer);
+    HRESULT hr = pSelectedSample->GetBufferByIndex(0, &pBuffer);
     if (FAILED(hr)) return false;
 
     // Get the D3D11 resource / texture from the Media Foundation DXGI buffer (Hardware Path)
@@ -397,6 +488,15 @@ bool VideoDecoder::UpdateFrame(ID3D11DeviceContext* pContext) {
         Microsoft::WRL::ComPtr<ID3D11Texture2D> pMFTexture;
         hr = pDXGIBuffer->GetResource(IID_PPV_ARGS(&pMFTexture));
         if (SUCCEEDED(hr)) {
+            D3D11_TEXTURE2D_DESC mfDesc;
+            pMFTexture->GetDesc(&mfDesc);
+
+            if (mfDesc.Width != m_videoTextureWidth || mfDesc.Height != m_videoTextureHeight) {
+                if (!ReallocateVideoTexture(mfDesc.Width, mfDesc.Height)) {
+                    return false;
+                }
+            }
+
             UINT subresourceIndex = 0;
             pDXGIBuffer->GetSubresourceIndex(&subresourceIndex);
 
@@ -409,6 +509,9 @@ bool VideoDecoder::UpdateFrame(ID3D11DeviceContext* pContext) {
                 subresourceIndex, // Source subresource
                 nullptr // Copy entire resource
             );
+            m_pActiveSRV_Y = m_pVideoSRV_Y;
+            m_pActiveSRV_UV = m_pVideoSRV_UV;
+            m_pActiveSample.Reset();
             return true;
         }
     }
@@ -417,6 +520,11 @@ bool VideoDecoder::UpdateFrame(ID3D11DeviceContext* pContext) {
     Microsoft::WRL::ComPtr<IMF2DBuffer> p2DBuffer;
     hr = pBuffer.As(&p2DBuffer);
     if (SUCCEEDED(hr)) {
+        if (m_videoWidth != m_videoTextureWidth || m_videoHeight != m_videoTextureHeight) {
+            if (!ReallocateVideoTexture(m_videoWidth, m_videoHeight)) {
+                return false;
+            }
+        }
         BYTE* pScanline0 = nullptr;
         LONG pitch = 0;
         hr = p2DBuffer->Lock2D(&pScanline0, &pitch);
@@ -430,6 +538,9 @@ bool VideoDecoder::UpdateFrame(ID3D11DeviceContext* pContext) {
                 0
             );
             p2DBuffer->Unlock2D();
+            m_pActiveSRV_Y = m_pVideoSRV_Y;
+            m_pActiveSRV_UV = m_pVideoSRV_UV;
+            m_pActiveSample.Reset();
             return true;
         }
     }
@@ -439,6 +550,12 @@ bool VideoDecoder::UpdateFrame(ID3D11DeviceContext* pContext) {
     DWORD cbCurrentLength = 0;
     hr = pBuffer->Lock(&pData, nullptr, &cbCurrentLength);
     if (SUCCEEDED(hr)) {
+        if (m_videoWidth != m_videoTextureWidth || m_videoHeight != m_videoTextureHeight) {
+            if (!ReallocateVideoTexture(m_videoWidth, m_videoHeight)) {
+                pBuffer->Unlock();
+                return false;
+            }
+        }
         // For NV12, the row pitch of the Y plane is m_videoWidth (1 byte per pixel)
         UINT32 rowPitch = m_videoWidth;
         pContext->UpdateSubresource(
@@ -450,6 +567,9 @@ bool VideoDecoder::UpdateFrame(ID3D11DeviceContext* pContext) {
             0
         );
         pBuffer->Unlock();
+        m_pActiveSRV_Y = m_pVideoSRV_Y;
+        m_pActiveSRV_UV = m_pVideoSRV_UV;
+        m_pActiveSample.Reset();
         return true;
     }
 

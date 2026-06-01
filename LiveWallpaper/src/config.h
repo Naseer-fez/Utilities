@@ -25,6 +25,9 @@ public:
     int GetIdleTimeoutMinutes() const { return m_idleTimeoutMinutes; }
     void SetIdleTimeoutMinutes(int minutes);
 
+    int GetFPSLimit() const { return m_fpsLimit; }
+    void SetFPSLimit(int fps);
+
     void RemoveFromPlaylist(size_t index);
 
 
@@ -36,4 +39,5 @@ private:
     std::vector<std::wstring> m_playlist;
     int m_rotationIntervalMinutes = 0;
     int m_idleTimeoutMinutes = 5; // Default to 5 minutes idle timeout
+    int m_fpsLimit = 0; // Default to 0 (Unlimited/VSync)
 };

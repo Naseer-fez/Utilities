@@ -13,10 +13,18 @@ public:
     void Shutdown();
 
     // Renders a test frame (color cycling or gradient) and presents it
-    HRESULT RenderTestFrame();
+    HRESULT RenderTestFrame(UINT syncInterval = 1);
     
     // Renders a video frame texture using a full-screen quad (NV12)
-    HRESULT RenderVideoFrame(ID3D11ShaderResourceView* pVideoSRV_Y, ID3D11ShaderResourceView* pVideoSRV_UV, int videoWidth, int videoHeight);
+    HRESULT RenderVideoFrame(
+        ID3D11ShaderResourceView* pVideoSRV_Y, 
+        ID3D11ShaderResourceView* pVideoSRV_UV, 
+        int textureWidth, 
+        int textureHeight, 
+        int videoWidth, 
+        int videoHeight, 
+        UINT syncInterval = 1
+    );
 
     // Resizes the swap chain buffers
     bool Resize(int width, int height);
@@ -25,17 +33,19 @@ public:
     void Clear(const float color[4]);
 
     // Swaps buffers
-    HRESULT Present();
+    HRESULT Present(UINT syncInterval = 1);
 
     // Accessors
     Microsoft::WRL::ComPtr<ID3D11Device> GetDevice() const { return m_d3dDevice; }
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> GetContext() const { return m_d3dContext; }
+    int GetWidth() const { return m_width; }
+    int GetHeight() const { return m_height; }
 
 private:
     bool CreateDeviceAndSwapChain();
     bool CreateRenderTargetView();
     bool InitializeShaders();
-    void UpdateAspectRatioCB(int videoWidth, int videoHeight);
+    void UpdateAspectRatioCB(int textureWidth, int textureHeight, int videoWidth, int videoHeight);
     void ReleaseResources();
 
     HWND m_hWnd = nullptr;

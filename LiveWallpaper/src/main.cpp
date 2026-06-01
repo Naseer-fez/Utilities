@@ -59,6 +59,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     ULONGLONG lastTransitionTime = GetTickCount64();
 
     RenderEngine renderEngine;
+    renderEngine.SetFPSLimit(config.GetFPSLimit());
     // Load video on dedicated render thread
     if (!renderEngine.Start(host.GetHWND(), videoPath)) {
         LOG_ERROR("Failed to start RenderEngine.");
@@ -134,6 +135,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         trayIcon.UpdatePauseState(config.IsPaused());
         trayIcon.UpdateRotationInterval(config.GetRotationIntervalMinutes());
         trayIcon.UpdateHasPlaylist(!playlist.empty());
+        trayIcon.UpdateFPSLimit(config.GetFPSLimit());
         
         trayIcon.SetChangeVideoCallback([&](const std::wstring& newPath) {
             playlist.clear();
@@ -199,6 +201,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             trayIcon.UpdateRotationInterval(minutes);
             lastTransitionTime = GetTickCount64(); // Reset timer on interval change
             LOG_INFO("Rotation interval updated to %d minutes", minutes);
+        });
+
+        trayIcon.SetFPSLimitCallback([&](int fps) {
+            config.SetFPSLimit(fps);
+            config.Save();
+            trayIcon.UpdateFPSLimit(fps);
+            renderEngine.SetFPSLimit(fps);
+            LOG_INFO("FPS limit updated to %d", fps);
         });
     }
 

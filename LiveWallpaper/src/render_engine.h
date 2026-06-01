@@ -21,6 +21,7 @@ public:
     
     void RequestChangeVideo(const std::wstring& path);
     void SetPaused(bool paused);
+    void SetFPSLimit(int fpsLimit) { m_fpsLimit.store(fpsLimit); }
 
     bool IsRunning() const { return m_runThread.load(); }
 
@@ -54,6 +55,7 @@ private:
 
     // Pause state
     std::atomic<bool> m_isPaused{ false };
+    std::atomic<int> m_fpsLimit{ 0 }; // 0 = Unlimited / VSync
 
     // Instances managed entirely on the render thread
     std::unique_ptr<Renderer> m_renderer;
