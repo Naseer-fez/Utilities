@@ -1,0 +1,32 @@
+# Build directories
+build/
+build_msvc/
+build_temp/
+
+# Compiled binaries in root
+LiveWallpaper.exe
+live_wallpaper_rust.dll
+
+# Rust build target
+live_wallpaper_rust/target/
+
+# Python cache & virtual environments
+__pycache__/
+*.pyc
+.venv/
+env/
+
+# Temp and error log files
+*.txt
+err.txt
+out.txt
+rust_err.txt
+
+# IDE / Editor configuration files
+.vs/
+.vscode/
+*.user
+*.suo
+*.db
+CMakeSettings.json
+out/
