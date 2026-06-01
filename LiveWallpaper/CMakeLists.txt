@@ -85,6 +85,23 @@ if(MSVC)
     )
     # Enable multi-processor compilation
     target_compile_options(LiveWallpaper PRIVATE /MP)
+    
+    # Max Optimization Flags (Release Only)
+    target_compile_options(LiveWallpaper PRIVATE 
+        $<$<CONFIG:Release>:/O2>
+        $<$<CONFIG:Release>:/Oi>
+        $<$<CONFIG:Release>:/Ot>
+        $<$<CONFIG:Release>:/GL>
+        $<$<CONFIG:Release>:/fp:fast>
+        $<$<CONFIG:Release>:/arch:AVX2>
+    )
+    
+    # Linker Optimization Flags (Release Only)
+    target_link_options(LiveWallpaper PRIVATE 
+        $<$<CONFIG:Release>:/LTCG>
+        $<$<CONFIG:Release>:/OPT:REF>
+        $<$<CONFIG:Release>:/OPT:ICF>
+    )
 else()
     # Static link GCC/Clang runtimes to ensure zero runtime dependencies
     target_link_options(LiveWallpaper PRIVATE -static -static-libgcc -static-libstdc++)
