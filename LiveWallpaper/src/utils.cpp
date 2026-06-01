@@ -30,10 +30,11 @@ std::wstring GetLogFilePath() {
 }
 
 void InitializeLogging() {
-    if (!g_LogInitialized) {
+    static bool initCS = []() {
         InitializeCriticalSection(&g_LogCriticalSection);
         g_LogInitialized = true;
-    }
+        return true;
+    }();
 
     std::wstring dir = GetAppDataPath();
     if (!dir.empty()) {
@@ -54,6 +55,13 @@ void InitializeLogging() {
             DeleteFileW(backupPath.c_str());
             MoveFileW(logPath.c_str(), backupPath.c_str());
         }
+    }
+}
+
+void ShutdownLogging() {
+    if (g_LogInitialized) {
+        DeleteCriticalSection(&g_LogCriticalSection);
+        g_LogInitialized = false;
     }
 }
 
@@ -199,6 +207,76 @@ std::wstring FindFallbackVideo() {
     }
 
     return L"";
+}
+
+bool ValidateFilePath(const std::wstring& path, bool expectRelative) {
+    if (path.empty() || path.length() >= MAX_PATH) return false;
+    
+    // Reject traversal sequences to prevent directory traversal
+    if (path.find(L"..") != std::wstring::npos) {
+        return false;
+    }
+    
+    // Reject network / UNC paths to prevent credential leakage or remote execution
+    if (path.compare(0, 2, L"\\\\") == 0 || path.compare(0, 2, L"//") == 0) {
+        return false;
+    }
+    
+    // If a relative path is expected, reject absolute paths
+    if (expectRelative) {
+        if (path.length() >= 2 && iswalpha(path[0]) && path[1] == L':') {
+            return false;
+        }
+        if (path[0] == L'\\' || path[0] == L'/') {
+            return false;
+        }
+    }
+    
+    // Resolve absolute path securely first
+    wchar_t absPath[MAX_PATH];
+    DWORD len = GetFullPathNameW(path.c_str(), MAX_PATH, absPath, nullptr);
+    if (len == 0 || len >= MAX_PATH) {
+        return false;
+    }
+    
+    std::wstring absPathStr(absPath);
+    
+    // Check for Alternate Data Streams (ADS) to prevent spoofing and bypassing extension controls
+    size_t firstColon = absPathStr.find(L':');
+    if (firstColon != std::wstring::npos) {
+        if (firstColon != 1) { // Drive letter colon is allowed at index 1 (e.g. C:\)
+            return false;
+        }
+        size_t secondColon = absPathStr.find(L':', 2);
+        if (secondColon != std::wstring::npos) {
+            return false; // Alternate data stream detected
+        }
+    }
+    
+    // Check for null characters or control characters in path
+    for (wchar_t c : absPathStr) {
+        if (c < 32) {
+            return false;
+        }
+    }
+    
+    // Check extension on the RESOLVED absolute path to prevent bypass tricks
+    size_t extPos = absPathStr.find_last_of(L'.');
+    if (extPos == std::wstring::npos) return false;
+    
+    std::wstring ext = absPathStr.substr(extPos);
+    for (auto& c : ext) c = towlower(c);
+    
+    if (ext != L".mp4" && ext != L".mkv" && ext != L".avi" && ext != L".wmv" && ext != L".webm" && ext != L".hlsl") {
+        return false;
+    }
+    
+    DWORD attributes = GetFileAttributesW(absPath);
+    if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_DIRECTORY)) {
+        return false;
+    }
+    
+    return true;
 }
 
 } // namespace Utils

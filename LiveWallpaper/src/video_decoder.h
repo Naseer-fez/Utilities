@@ -11,6 +11,7 @@
 #include <atomic>
 #include <queue>
 #include "timer.h"
+#include "spsc_ring_buffer.h"
 
 class VideoDecoder {
 public:
@@ -64,16 +65,14 @@ private:
     // Active SRVs (can point to either MF hardware texture or local fallback texture)
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_pActiveSRV_Y;
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_pActiveSRV_UV;
-    Microsoft::WRL::ComPtr<IMFSample> m_pActiveSample; // Keeps current hardware frame alive
 
     // Threading & Synchronization
     std::thread m_decodeThread;
     std::atomic<bool> m_runThread{ false };
     std::atomic<bool> m_isPaused{ false };
-    std::mutex m_queueMutex;
     
-    // Shared sample queue
-    std::queue<Microsoft::WRL::ComPtr<IMFSample>> m_sampleQueue;
+    // Shared SPSC lock-free atomic sample queue (max capacity 16 is a power of 2)
+    SPSCRingBuffer<IMFSample*, 16> m_sampleQueue;
     double m_playbackTimeMs = 0.0;
     double m_currentFrameTimestamp = -1.0;
     Timer m_playbackTimer;

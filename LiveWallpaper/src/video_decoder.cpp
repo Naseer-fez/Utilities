@@ -198,7 +198,6 @@ bool VideoDecoder::LoadVideo(const std::wstring& filePath) {
 
     m_pActiveSRV_Y = m_pVideoSRV_Y;
     m_pActiveSRV_UV = m_pVideoSRV_UV;
-    m_pActiveSample.Reset();
 
     // Start decoding thread
     m_runThread = true;
@@ -221,12 +220,7 @@ void VideoDecoder::CloseVideo() {
         m_decodeThread.join();
     }
 
-    {
-        std::lock_guard<std::mutex> lock(m_queueMutex);
-        while (!m_sampleQueue.empty()) {
-            m_sampleQueue.pop();
-        }
-    }
+    m_sampleQueue.Clear();
 
     m_pSourceReader.Reset();
     m_pVideoSRV_Y.Reset();
@@ -234,7 +228,6 @@ void VideoDecoder::CloseVideo() {
     m_pVideoTexture.Reset();
     m_pActiveSRV_Y.Reset();
     m_pActiveSRV_UV.Reset();
-    m_pActiveSample.Reset();
     m_videoWidth = 0;
     m_videoHeight = 0;
     m_videoTextureWidth = 0;
@@ -321,12 +314,7 @@ void VideoDecoder::DecodingThreadProc() {
 
         // Wait if the queue is full to avoid decoding too far ahead
         while (m_runThread && !m_isPaused.load()) {
-            size_t queueSize = 0;
-            {
-                std::lock_guard<std::mutex> lock(m_queueMutex);
-                queueSize = m_sampleQueue.size();
-            }
-            if (queueSize < 5) { // Maximum of 5 frames buffered
+            if (m_sampleQueue.Size() < 5) { // Maximum of 5 frames buffered
                 break;
             }
             Timer::PreciseSleep(5.0);
@@ -379,8 +367,11 @@ void VideoDecoder::DecodingThreadProc() {
         }
 
         if (pSample) {
-            std::lock_guard<std::mutex> lock(m_queueMutex);
-            m_sampleQueue.push(pSample);
+            IMFSample* pRawSample = pSample.Detach();
+            if (!m_sampleQueue.Push(pRawSample)) {
+                // If queue push fails, release the sample to prevent leak
+                pRawSample->Release();
+            }
         } else {
             // Sleep briefly when no sample is fetched but no end-of-stream reached yet
             Timer::PreciseSleep(2.0);
@@ -416,57 +407,63 @@ bool VideoDecoder::UpdateFrame(ID3D11DeviceContext* pContext, double& outWaitTim
     Microsoft::WRL::ComPtr<IMFSample> pSelectedSample;
     bool hasNewFrame = false;
 
-    {
-        std::lock_guard<std::mutex> lock(m_queueMutex);
-        
-        while (!m_sampleQueue.empty()) {
-            auto& frontSample = m_sampleQueue.front();
-            LONGLONG hnsTimestamp = 0;
-            if (FAILED(frontSample->GetSampleTime(&hnsTimestamp))) {
-                m_sampleQueue.pop();
-                continue;
-            }
-            
-            double sampleTimeMs = static_cast<double>(hnsTimestamp) / 10000.0;
-            
-            // First frame: display immediately and align playback timer
-            if (m_currentFrameTimestamp < 0.0) {
-                m_playbackTimeMs = sampleTimeMs;
-                m_currentFrameTimestamp = sampleTimeMs;
-                pSelectedSample = frontSample;
-                m_sampleQueue.pop();
-                hasNewFrame = true;
-                continue;
-            }
-            
-            // Check for loop transition:
-            // If the next frame's timestamp is less than the current frame's timestamp,
-            // then the video must have looped.
-            if (sampleTimeMs < m_currentFrameTimestamp) {
-                m_playbackTimeMs = sampleTimeMs; // Reset playback time to match the new loop start
-                m_currentFrameTimestamp = sampleTimeMs;
-                pSelectedSample = frontSample;
-                m_sampleQueue.pop();
-                hasNewFrame = true;
-                continue; // Continue checking if we need to catch up
-            }
-            
-            if (m_playbackTimeMs >= sampleTimeMs) {
-                pSelectedSample = frontSample;
-                m_currentFrameTimestamp = sampleTimeMs;
-                m_sampleQueue.pop();
-                hasNewFrame = true;
-            } else {
-                // Next frame is in the future, stop popping and calculate wait time
-                outWaitTimeMs = sampleTimeMs - m_playbackTimeMs;
-                break;
-            }
+    while (true) {
+        IMFSample* frontSample = m_sampleQueue.Peek();
+        if (!frontSample) {
+            break;
         }
 
-        if (!hasNewFrame && m_sampleQueue.empty()) {
-            // Queue is empty, wait a default short duration (e.g. 2.0ms) to let decoder thread decode.
-            outWaitTimeMs = 2.0;
+        LONGLONG hnsTimestamp = 0;
+        if (FAILED(frontSample->GetSampleTime(&hnsTimestamp))) {
+            m_sampleQueue.PopAndDiscard();
+            continue;
         }
+
+        double sampleTimeMs = static_cast<double>(hnsTimestamp) / 10000.0;
+
+        // First frame: display immediately and align playback timer
+        if (m_currentFrameTimestamp < 0.0) {
+            m_playbackTimeMs = sampleTimeMs;
+            m_currentFrameTimestamp = sampleTimeMs;
+            IMFSample* poppedSample = nullptr;
+            if (m_sampleQueue.Pop(poppedSample)) {
+                pSelectedSample.Attach(poppedSample);
+                hasNewFrame = true;
+            }
+            continue;
+        }
+
+        // Check for loop transition:
+        // If the next frame's timestamp is less than the current frame's timestamp,
+        // then the video must have looped.
+        if (sampleTimeMs < m_currentFrameTimestamp) {
+            m_playbackTimeMs = sampleTimeMs; // Reset playback time to match the new loop start
+            m_currentFrameTimestamp = sampleTimeMs;
+            IMFSample* poppedSample = nullptr;
+            if (m_sampleQueue.Pop(poppedSample)) {
+                pSelectedSample.Attach(poppedSample);
+                hasNewFrame = true;
+            }
+            continue; // Continue checking if we need to catch up
+        }
+
+        if (m_playbackTimeMs >= sampleTimeMs) {
+            m_currentFrameTimestamp = sampleTimeMs;
+            IMFSample* poppedSample = nullptr;
+            if (m_sampleQueue.Pop(poppedSample)) {
+                pSelectedSample.Attach(poppedSample);
+                hasNewFrame = true;
+            }
+        } else {
+            // Next frame is in the future, stop popping and calculate wait time
+            outWaitTimeMs = sampleTimeMs - m_playbackTimeMs;
+            break;
+        }
+    }
+
+    if (!hasNewFrame && m_sampleQueue.IsEmpty()) {
+        // Queue is empty, wait a default short duration (e.g. 2.0ms) to let decoder thread decode.
+        outWaitTimeMs = 2.0;
     }
 
     if (!hasNewFrame || !pSelectedSample) {
@@ -511,7 +508,6 @@ bool VideoDecoder::UpdateFrame(ID3D11DeviceContext* pContext, double& outWaitTim
             );
             m_pActiveSRV_Y = m_pVideoSRV_Y;
             m_pActiveSRV_UV = m_pVideoSRV_UV;
-            m_pActiveSample.Reset();
             return true;
         }
     }
@@ -540,7 +536,6 @@ bool VideoDecoder::UpdateFrame(ID3D11DeviceContext* pContext, double& outWaitTim
             p2DBuffer->Unlock2D();
             m_pActiveSRV_Y = m_pVideoSRV_Y;
             m_pActiveSRV_UV = m_pVideoSRV_UV;
-            m_pActiveSample.Reset();
             return true;
         }
     }
@@ -569,7 +564,6 @@ bool VideoDecoder::UpdateFrame(ID3D11DeviceContext* pContext, double& outWaitTim
         pBuffer->Unlock();
         m_pActiveSRV_Y = m_pVideoSRV_Y;
         m_pActiveSRV_UV = m_pVideoSRV_UV;
-        m_pActiveSample.Reset();
         return true;
     }
 

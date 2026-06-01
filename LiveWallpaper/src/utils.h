@@ -13,8 +13,11 @@ enum class LogLevel {
 };
 
 void InitializeLogging();
+void ShutdownLogging();
 void Log(LogLevel level, const char* format, ...);
 void LogW(LogLevel level, const wchar_t* format, ...);
+
+bool ValidateFilePath(const std::wstring& path, bool expectRelative = false);
 
 // COM Helper for checking HRESULT
 inline void LogIfFailed(HRESULT hr, const char* context) {

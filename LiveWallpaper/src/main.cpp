@@ -1,13 +1,70 @@
 #include <windows.h>
 #include "utils.h"
-#include "wallpaper_host.h"
-#include "render_engine.h"
+#include "explorer_integration.h"
+#include "render_thread_controller.h"
 #include "config.h"
 #include "tray_icon.h"
 #include "power_monitor.h"
 #include "playlist_dialog.h"
+#include <sddl.h>
+
+// Helper function to retrieve the current user's SID string dynamically
+static std::wstring GetCurrentUserSidString() {
+    std::wstring sidString;
+    HANDLE hToken = NULL;
+    if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &hToken)) {
+        DWORD dwSize = 0;
+        GetTokenInformation(hToken, TokenUser, NULL, 0, &dwSize);
+        if (GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
+            std::vector<BYTE> buffer(dwSize);
+            PTOKEN_USER pTokenUser = reinterpret_cast<PTOKEN_USER>(buffer.data());
+            if (GetTokenInformation(hToken, TokenUser, pTokenUser, dwSize, &dwSize)) {
+                LPWSTR pSidStr = NULL;
+                if (ConvertSidToStringSidW(pTokenUser->User.Sid, &pSidStr)) {
+                    sidString = pSidStr;
+                    LocalFree(pSidStr);
+                }
+            }
+        }
+        CloseHandle(hToken);
+    }
+    return sidString;
+}
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
+    // Single instance check using a named session-local mutex to mitigate cross-session squatting
+    SECURITY_ATTRIBUTES sa;
+    sa.nLength = sizeof(SECURITY_ATTRIBUTES);
+    sa.bInheritHandle = FALSE;
+    PSECURITY_DESCRIPTOR pSD = NULL;
+    
+    // Construct SDDL: Restrict access to Local System, Built-in Administrators, and the Current User SID.
+    // Also set a Mandatory Integrity Label SACL to Low Integrity (LW) with No-Write-Up (NW) policy
+    // to allow low-integrity processes of the same user to interact with/be protected from the mutex.
+    std::wstring sddl = L"D:(A;;GA;;;SY)(A;;GA;;;BA)";
+    std::wstring userSid = GetCurrentUserSidString();
+    if (!userSid.empty()) {
+        sddl += L"(A;;GA;;;" + userSid + L")";
+    } else {
+        sddl += L"(A;;GA;;;OW)"; // Fallback to Owner Rights
+    }
+    sddl += L"S:(ML;;NW;;;LW)";
+
+    if (ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.c_str(), SDDL_REVISION_1, &pSD, NULL)) {
+        sa.lpSecurityDescriptor = pSD;
+    } else {
+        sa.lpSecurityDescriptor = NULL;
+    }
+    HANDLE hMutex = CreateMutexW(&sa, TRUE, L"Local\\LiveWallpaperEngineUniqueMutex_FEZN");
+    if (pSD) LocalFree(pSD);
+    if (hMutex == NULL) {
+        return -1;
+    }
+    if (GetLastError() == ERROR_ALREADY_EXISTS) {
+        CloseHandle(hMutex);
+        return 0; // Exit silently if another instance is already running
+    }
+
     Utils::InitializeLogging();
     LOG_INFO("LiveWallpaper main application starting.");
 
@@ -16,9 +73,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         LOG_ERROR("CoInitializeEx failed in main thread. HRESULT: 0x%08X", hrCOM);
     }
 
-    WallpaperHost host;
+    ExplorerIntegration host;
     if (!host.Initialize(hInstance)) {
-        LOG_ERROR("Failed to initialize Wallpaper Host.");
+        LOG_ERROR("Failed to initialize Explorer Integration.");
         return -1;
     }
 
@@ -58,16 +115,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     ULONGLONG lastTransitionTime = GetTickCount64();
 
-    RenderEngine renderEngine;
-    renderEngine.SetFPSLimit(config.GetFPSLimit());
+    RenderThreadController renderThread;
+    renderThread.SetFPSLimit(config.GetFPSLimit());
     // Load video on dedicated render thread
-    if (!renderEngine.Start(host.GetHWND(), videoPath)) {
-        LOG_ERROR("Failed to start RenderEngine.");
+    if (!renderThread.Start(host.GetHWND(), videoPath)) {
+        LOG_ERROR("Failed to start RenderThreadController.");
         return -1;
     }
     
     // Apply initial pause state
-    renderEngine.SetPaused(config.IsPaused());
+    renderThread.SetPaused(config.IsPaused());
 
     bool isSystemPowerPaused = false;
     PowerMonitor powerMonitor;
@@ -75,7 +132,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         powerMonitor.SetPauseCallback([&](bool pauseForPower) {
             isSystemPowerPaused = pauseForPower;
             bool effectivePause = config.IsPaused() || isSystemPowerPaused;
-            renderEngine.SetPaused(effectivePause);
+            renderThread.SetPaused(effectivePause);
             LOG_INFO("Power state changed. Effective pause state: %d", effectivePause);
         });
     } else {
@@ -88,7 +145,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         std::wstring nextVideo = playlist[currentPlaylistItem];
         config.SetVideoPath(nextVideo);
         config.Save();
-        renderEngine.RequestChangeVideo(nextVideo);
+        renderThread.RequestChangeVideo(nextVideo);
         lastTransitionTime = GetTickCount64();
         LOG_INFO("Transitioned to next video: %ls (index: %zu)", nextVideo.c_str(), currentPlaylistItem);
     };
@@ -104,7 +161,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             config.SetVideoPath(L"");
             config.Save();
             trayIcon.UpdateHasPlaylist(false);
-            renderEngine.RequestChangeVideo(L"");
+            renderThread.RequestChangeVideo(L"");
             return;
         }
         
@@ -120,7 +177,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         std::wstring currentVideo = playlist[currentPlaylistItem];
         if (videoChanged || config.GetVideoPath() != currentVideo) {
             config.SetVideoPath(currentVideo);
-            renderEngine.RequestChangeVideo(currentVideo);
+            renderThread.RequestChangeVideo(currentVideo);
             lastTransitionTime = GetTickCount64();
         }
         
@@ -138,22 +195,27 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         trayIcon.UpdateFPSLimit(config.GetFPSLimit());
         
         trayIcon.SetChangeVideoCallback([&](const std::wstring& newPath) {
-            playlist.clear();
-            playlist.push_back(newPath);
-            currentPlaylistItem = 0;
-            config.SetVideoPath(newPath);
-            config.SetPlaylist(playlist);
-            config.Save();
-            
-            trayIcon.UpdateHasPlaylist(!playlist.empty());
-            renderEngine.RequestChangeVideo(newPath);
+            if (Utils::ValidateFilePath(newPath)) {
+                playlist.clear();
+                playlist.push_back(newPath);
+                currentPlaylistItem = 0;
+                
+                config.SetVideoPath(newPath);
+                config.SetPlaylist(playlist);
+                config.Save();
+                
+                trayIcon.UpdateHasPlaylist(!playlist.empty());
+                renderThread.RequestChangeVideo(newPath);
+            } else {
+                LOG_ERROR("Rejected invalid or unsafe dropped file path: %ls", newPath.c_str());
+            }
         });
         
         trayIcon.SetTogglePauseCallback([&](bool isPaused) {
             config.SetPaused(isPaused);
             config.Save();
             bool effectivePause = config.IsPaused() || isSystemPowerPaused;
-            renderEngine.SetPaused(effectivePause);
+            renderThread.SetPaused(effectivePause);
         });
         
         trayIcon.SetExitCallback([&]() {
@@ -162,18 +224,22 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
         // Phase 7 playlist callbacks
         trayIcon.SetAddVideoCallback([&](const std::wstring& newPath) {
-            playlist.push_back(newPath);
-            config.SetPlaylist(playlist);
-            config.Save();
-            trayIcon.UpdateHasPlaylist(!playlist.empty());
-            
-            if (playlist.size() == 1) {
-                currentPlaylistItem = 0;
-                config.SetVideoPath(newPath);
+            if (Utils::ValidateFilePath(newPath)) {
+                playlist.push_back(newPath);
+                config.SetPlaylist(playlist);
                 config.Save();
-                renderEngine.RequestChangeVideo(newPath);
+                trayIcon.UpdateHasPlaylist(!playlist.empty());
+                
+                if (playlist.size() == 1) {
+                    currentPlaylistItem = 0;
+                    config.SetVideoPath(newPath);
+                    config.Save();
+                    renderThread.RequestChangeVideo(newPath);
+                }
+                LOG_INFO("Added video to playlist: %ls", newPath.c_str());
+            } else {
+                LOG_ERROR("Rejected invalid or unsafe file path: %ls", newPath.c_str());
             }
-            LOG_INFO("Added video to playlist: %ls", newPath.c_str());
         });
 
         trayIcon.SetClearPlaylistCallback([&]() {
@@ -183,7 +249,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             config.SetVideoPath(L"");
             config.Save();
             trayIcon.UpdateHasPlaylist(false);
-            renderEngine.RequestChangeVideo(L"");
+            renderThread.RequestChangeVideo(L"");
             LOG_INFO("Playlist cleared.");
         });
 
@@ -207,7 +273,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             config.SetFPSLimit(fps);
             config.Save();
             trayIcon.UpdateFPSLimit(fps);
-            renderEngine.SetFPSLimit(fps);
+            renderThread.SetFPSLimit(fps);
             LOG_INFO("FPS limit updated to %d", fps);
         });
     }
@@ -248,8 +314,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
         HWND currentHWnd = host.GetHWND();
         if (currentHWnd != lastHWnd) {
-            LOG_INFO("Host window recreated! Requesting RenderEngine recovery on new handle.");
-            renderEngine.RequestRecreate(currentHWnd);
+            LOG_INFO("Host window recreated! Requesting RenderThread recovery on new handle.");
+            renderThread.RequestRecreate(currentHWnd);
             lastHWnd = currentHWnd;
         }
 
@@ -258,16 +324,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             if (GetClientRect(currentHWnd, &rect)) {
                 int w = rect.right - rect.left;
                 int h = rect.bottom - rect.top;
-                renderEngine.RequestResize(w, h);
+                renderThread.RequestResize(w, h);
             }
         }
     }
 
 exit_loop:
-    LOG_INFO("Exiting main message loop. Stopping RenderEngine and cleaning up...");
+    LOG_INFO("Exiting main message loop. Stopping RenderThreadController and cleaning up...");
     powerMonitor.Shutdown();
     trayIcon.Shutdown();
-    renderEngine.Stop();
+    renderThread.Stop();
     host.Shutdown();
 
     LOG_INFO("LiveWallpaper main application exiting.");
@@ -276,6 +342,9 @@ exit_loop:
         CoUninitialize();
     }
 
+    Utils::ShutdownLogging();
+
+    CloseHandle(hMutex);
     return (int)msg.wParam;
 }
 

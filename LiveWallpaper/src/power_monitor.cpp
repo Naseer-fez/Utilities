@@ -2,6 +2,18 @@
 #include "utils.h"
 #include <winuser.h>
 #include <initguid.h>
+#include <shellapi.h>
+
+// Define missing Windows 8+ shell notification state enums for older MinGW toolchains
+#ifndef QUNS_RUNNING_D3D_FULL_SCREEN
+#define QUNS_RUNNING_D3D_FULL_SCREEN static_cast<QUERY_USER_NOTIFICATION_STATE>(3)
+#endif
+#ifndef QUNS_APP
+#define QUNS_APP static_cast<QUERY_USER_NOTIFICATION_STATE>(7)
+#endif
+#ifndef QUNS_RUNNING_PLAY_TO
+#define QUNS_RUNNING_PLAY_TO static_cast<QUERY_USER_NOTIFICATION_STATE>(8)
+#endif
 
 #ifndef GUID_ACDC_POWER_SOURCE
 DEFINE_GUID(GUID_ACDC_POWER_SOURCE, 0x5D3E9A59, 0xE9D5, 0x4B00, 0xA6, 0xBD, 0xFF, 0x34, 0xEA, 0x32, 0xA2, 0xF1);
@@ -18,6 +30,7 @@ PowerMonitor::~PowerMonitor() {
 }
 
 bool PowerMonitor::Initialize(HINSTANCE hInstance) {
+    m_hInstance = hInstance;
     WNDCLASSEXW wcx = { 0 };
     wcx.cbSize = sizeof(wcx);
     wcx.lpfnWndProc = WndProc;
@@ -72,6 +85,10 @@ void PowerMonitor::Shutdown() {
         DestroyWindow(m_hWnd);
         m_hWnd = nullptr;
     }
+    if (m_hInstance) {
+        UnregisterClassW(L"LiveWallpaperPowerMonitorClass", m_hInstance);
+        m_hInstance = nullptr;
+    }
 }
 
 void PowerMonitor::SetPauseCallback(std::function<void(bool)> callback) {
@@ -80,13 +97,20 @@ void PowerMonitor::SetPauseCallback(std::function<void(bool)> callback) {
 }
 
 void PowerMonitor::EvaluatePowerState() {
-    bool shouldPause = m_isOnBattery || m_isDisplayOff || m_isFullscreenAppRunning || m_isUserIdle;
+    bool shouldPause = m_isOnBattery || m_isDisplayOff || m_isFullscreenAppRunning || m_isUserIdle || m_isObscured;
     if (m_pauseCallback) {
         m_pauseCallback(shouldPause);
     }
 }
 
 void PowerMonitor::CheckForegroundAndIdleStates(int idleTimeoutMinutes) {
+    DWORD currentTick = GetTickCount();
+    static DWORD lastCheckTick = 0;
+    if (currentTick - lastCheckTick < 1000) {
+        return; // Throttle checks to once per second
+    }
+    lastCheckTick = currentTick;
+
     bool stateChanged = false;
 
     // 1. Idle Detection
@@ -95,7 +119,6 @@ void PowerMonitor::CheckForegroundAndIdleStates(int idleTimeoutMinutes) {
         LASTINPUTINFO lii;
         lii.cbSize = sizeof(LASTINPUTINFO);
         if (GetLastInputInfo(&lii)) {
-            DWORD currentTick = GetTickCount();
             DWORD elapsedMs = currentTick - lii.dwTime;
             if (elapsedMs >= (DWORD)(idleTimeoutMinutes * 60 * 1000)) {
                 newIsUserIdle = true;
@@ -135,6 +158,26 @@ void PowerMonitor::CheckForegroundAndIdleStates(int idleTimeoutMinutes) {
         m_isFullscreenAppRunning = newIsFullscreenAppRunning;
         stateChanged = true;
         LOG_INFO("Fullscreen app state changed to: %d", m_isFullscreenAppRunning);
+    }
+
+    // 3. User Notification State (Fullscreen games/screensaver)
+    bool newIsObscured = false;
+    QUERY_USER_NOTIFICATION_STATE notificationState;
+    if (SUCCEEDED(SHQueryUserNotificationState(&notificationState))) {
+        if (notificationState == QUNS_NOT_PRESENT ||
+            notificationState == QUNS_BUSY ||
+            notificationState == QUNS_RUNNING_D3D_FULL_SCREEN ||
+            notificationState == QUNS_PRESENTATION_MODE ||
+            notificationState == QUNS_APP ||
+            notificationState == QUNS_RUNNING_PLAY_TO) {
+            newIsObscured = true;
+        }
+    }
+
+    if (newIsObscured != m_isObscured) {
+        m_isObscured = newIsObscured;
+        stateChanged = true;
+        LOG_INFO("Shell notification/obscuration state changed to: %d", m_isObscured);
     }
 
     if (stateChanged) {

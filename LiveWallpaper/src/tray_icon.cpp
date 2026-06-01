@@ -84,6 +84,10 @@ void TrayIcon::Shutdown() {
         DestroyWindow(m_hWnd);
         m_hWnd = nullptr;
     }
+    if (m_hInstance) {
+        UnregisterClassW(L"LiveWallpaperTrayClass", m_hInstance);
+        m_hInstance = nullptr;
+    }
 }
 
 void TrayIcon::SetChangeVideoCallback(std::function<void(const std::wstring&)> cb) {

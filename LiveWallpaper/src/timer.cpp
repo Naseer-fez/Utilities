@@ -25,20 +25,31 @@ double Timer::GetElapsedMilliseconds() const {
 void Timer::PreciseSleep(double milliseconds) {
     if (milliseconds <= 0.0) return;
 
-    // Try to use modern Windows 10+ high-resolution waitable timer.
-    HANDLE hTimer = CreateWaitableTimerExW(
-        NULL, NULL, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS
-    );
+    // Cache the high-resolution timer handle per-thread to avoid recreation overhead.
+    // The struct destructor will automatically close the handle when the thread exits.
+    struct ThreadTimer {
+        HANDLE hTimer = nullptr;
+        ThreadTimer() {
+            hTimer = CreateWaitableTimerExW(
+                NULL, NULL, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS
+            );
+        }
+        ~ThreadTimer() {
+            if (hTimer) {
+                CloseHandle(hTimer);
+            }
+        }
+    };
 
-    if (hTimer) {
+    thread_local ThreadTimer threadTimer;
+
+    if (threadTimer.hTimer) {
         LARGE_INTEGER dueTime;
         dueTime.QuadPart = static_cast<LONGLONG>(-milliseconds * 10000.0); // 100ns intervals
-        if (SetWaitableTimer(hTimer, &dueTime, 0, NULL, NULL, 0)) {
-            WaitForSingleObject(hTimer, INFINITE);
-            CloseHandle(hTimer);
+        if (SetWaitableTimer(threadTimer.hTimer, &dueTime, 0, NULL, NULL, 0)) {
+            WaitForSingleObject(threadTimer.hTimer, INFINITE);
             return;
         }
-        CloseHandle(hTimer);
     }
 
     // Fallback if high-res timer is not available (e.g. older Windows versions)

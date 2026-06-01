@@ -18,6 +18,7 @@ private:
     void EvaluatePowerState();
 
     HWND m_hWnd = nullptr;
+    HINSTANCE m_hInstance = nullptr;
     HPOWERNOTIFY m_hPowerNotifyAcDc = nullptr;
     HPOWERNOTIFY m_hPowerNotifyDisplay = nullptr;
     std::function<void(bool)> m_pauseCallback;
@@ -26,4 +27,5 @@ private:
     bool m_isDisplayOff = false;
     bool m_isFullscreenAppRunning = false;
     bool m_isUserIdle = false;
+    bool m_isObscured = false;
 };

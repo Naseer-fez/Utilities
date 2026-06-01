@@ -16,6 +16,10 @@ bool Config::Load() {
     wchar_t videoPath[MAX_PATH];
     GetPrivateProfileStringW(L"Settings", L"VideoPath", L"", videoPath, MAX_PATH, path.c_str());
     m_videoPath = videoPath;
+    if (!m_videoPath.empty() && !Utils::ValidateFilePath(m_videoPath, false)) {
+        LOG_WARN("Config loaded invalid or unsafe VideoPath: %ls. Clearing.", m_videoPath.c_str());
+        m_videoPath.clear();
+    }
 
     int paused = GetPrivateProfileIntW(L"Settings", L"Paused", 0, path.c_str());
     m_isPaused = (paused != 0);
@@ -32,14 +36,22 @@ bool Config::Load() {
         while (end != std::wstring::npos) {
             std::wstring item = playlistStr.substr(start, end - start);
             if (!item.empty()) {
-                m_playlist.push_back(item);
+                if (Utils::ValidateFilePath(item, false)) {
+                    m_playlist.push_back(item);
+                } else {
+                    LOG_WARN("Config loaded invalid or unsafe playlist item: %ls. Skipping.", item.c_str());
+                }
             }
             start = end + 1;
             end = playlistStr.find(L'|', start);
         }
         std::wstring lastItem = playlistStr.substr(start);
         if (!lastItem.empty()) {
-            m_playlist.push_back(lastItem);
+            if (Utils::ValidateFilePath(lastItem, false)) {
+                m_playlist.push_back(lastItem);
+            } else {
+                LOG_WARN("Config loaded invalid or unsafe playlist item: %ls. Skipping.", lastItem.c_str());
+            }
         }
     }
 
