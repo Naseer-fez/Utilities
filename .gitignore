@@ -1,92 +1,127 @@
-# Python
-__pycache__/
-**/__pycache__/
-*.pyc
-*.pyo
-*.pyd
-**/*.pyc
-**/*.pyo
-**/*.pyd
-*.egg-info/
-**/ *.egg-info/
+# Universal Gitignore for Utilities Monorepo
 
-# Build and distribution directories
-dist/
-**/dist/
-build/
-**/build/
-bin/
-**/bin/
-obj/
-**/obj/
-
-# Downloaded content
-Downloaded_Music/
-
-# Build artifacts and executables
+# -------------------------------------------------------------------
+# General C++ / MSVC / CMake
+# -------------------------------------------------------------------
 *.exe
-**/*.exe
-*.ico
-**/*.ico
-
-# IDEs and Editors
-.vscode/
-.idea/
+*.obj
+*.o
+*.a
+*.lib
+*.dll
+*.so
+*.dylib
+*.ncb
+*.sdf
 *.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.swp
+*.pdb
+*.idb
+.vs/
+out/
+build/
+bin/
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps/
 
-# Auth tokens & credentials
+# -------------------------------------------------------------------
+# General Python
+# -------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# -------------------------------------------------------------------
+# General Rust
+# -------------------------------------------------------------------
+/target/
+**/*.rs.bk
+Cargo.lock
+
+# -------------------------------------------------------------------
+# Node / Web / RAG Study
+# -------------------------------------------------------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.next/
+out/
+build/
+dist/
+
+# -------------------------------------------------------------------
+# General OS / IDE / Editors
+# -------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+ehthumbs_vista.db
+[Tt]humbs.db
+.AppleDouble
+.LSOverride
+
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# -------------------------------------------------------------------
+# Databases, Logs & App Data
+# -------------------------------------------------------------------
+*.sqlite
+*.sqlite3
+*.db
+*.log
+logs/
+.tmp.driveupload/
+.tmp.drivedownload/
+Downloaded_Music/
+download_history.json
+download_manager_config.json
 spotify_auth_token.txt
 download_manager_credentials.json
 
-# Data files, databases, and logs
-download_history.json
-download_manager_config.json
-*.db
-**/*.db
-*.sqlite
-**/*.sqlite
-*.sqlite3
-**/*.sqlite3
-*.log
-**/*.log
-logs/
-**/logs/
-
 # Personal data / CSV logs
 *.csv
-**/*.csv
-
-# Environment files
-.env
-.env.local
-.env.*
-**/.env
-**/.env.local
-**/.env.*
-
-# Dependencies (Node, Python venv, Rust)
-node_modules/
-**/node_modules/
-venv/
-**/venv/
-.venv/
-**/.venv/
-env/
-**/env/
-target/
-**/target/
-Cargo.lock
-**/Cargo.lock
-
-# Temporary/OS files
-.tmp.driveupload/
-**/.tmp.driveupload/
-.DS_Store
-Thumbs.db
-
-
-
+config.json
+config.toml

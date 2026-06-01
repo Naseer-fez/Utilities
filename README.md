@@ -1,93 +1,49 @@
-# Utilities
+# Utilities Repository
 
-A collection of useful tools and scripts.
+> **A centralized collection of developer tools, utilities, and automation scripts.**
+
+Welcome to the Utilities repository! This project serves as a monorepo for various specialized applications designed to improve workflow, enhance desktop customization, and streamline everyday tasks.
 
 ---
 
-## 📥 DownloadManager
+## 📂 Included Projects
 
-A desktop app (GUI + CLI) to download music from Spotify playlists and YouTube videos. Built with Python and PySide6.
+This repository hosts several diverse tools across different tech stacks (Python, C++, Rust, web technologies). Each project operates independently and contains its own README for specific setup and execution instructions.
 
-### Features
+| Project | Description | Primary Tech Stack |
+|---------|-------------|--------------------|
+| **[DevControl](./DevControl)** | Telemetry and API monitoring engine with AI log extraction. | Python, SQLite, C++ |
+| **[DownloadManager](./DownloadManager)** | Advanced audio and video downloader for Spotify and YouTube. | Python, PySide6 |
+| **[FileFinder](./FileFinder)** | Blazingly fast desktop file lookup utility. | C++ |
+| **[Focus](./Focus)** | Productivity application to manage deep work sessions. | Python, C++ |
+| **[LiveWallpaper](./LiveWallpaper)** | High-performance, shader-based dynamic wallpaper renderer. | C++, Rust, HLSL |
+| **[MusicPlayer](./MusicPlayer)** | Custom local audio player with an NSIS-packaged installer. | Python, NSIS |
+| **[PdfEditor](./PdfEditor)** | Toolset for straightforward PDF manipulation. | Python |
+| **[QuickFinder](./QuickFinder)** | Fast and lightweight desktop search utility. | C++ |
+| **[RagStudy](./RagStudy)** | AI-powered Retrieval-Augmented Generation application for studying. | Python, Web Tech |
+| **[Reminder](./Reminder)** | Fast, memory-safe task and event scheduler. | Rust |
+| **[Tracker](./Tracker)** | Lightweight utility for tracking events and system metrics. | Rust |
 
-- **Spotify Playlist Downloader** — Provide a Spotify playlist CSV and download all tracks as MP3 using [spotDL](https://github.com/spotDL/spotify-downloader)
-- **YouTube Video Downloader** — Download YouTube videos in various formats using [yt-dlp](https://github.com/yt-dlp/yt-dlp)
-- **Modern GUI** — Tabbed interface with a setup wizard, dark theme, and real-time progress
-- **CLI Mode** — Run headless via `musicscript.py` for batch/automated downloads
-- **Auto-Retry** — `filerunn.py` loops batches until the entire playlist is downloaded
-- **Build as Installer** — Package into a standalone `.msi` or portable `.zip` with `cx_Freeze`
+## 🚀 Getting Started
 
-### Prerequisites
+Each project folder has its own `README.md` and build instructions. Navigate to the desired utility to view setup, dependencies, and execution commands.
 
+For example, to explore the Live Wallpaper app:
+```bash
+cd LiveWallpaper
+# Read the project's README.md
+```
+
+## 🛠️ Global Requirements
+
+While each project has its own dependencies, common tools used across this repository include:
 - **Python 3.10+**
-- **ffmpeg** — Must be on your PATH ([download](https://ffmpeg.org/download.html))
+- **Rust Toolchain (`cargo`)**
+- **C++ Compiler (MSVC / MinGW) & CMake**
+- **ffmpeg** (for media-related projects)
 
-### Quick Start
+## 🤝 Contribution Guidelines
 
-```bash
-# 1. Clone the repo
-git clone https://github.com/Naseer-fez/Utilities-.git
-cd Utilities-/DownloadManager
-
-# 2. Install dependencies
-pip install -r requirements.txt
-
-# 3. Run the GUI
-python download_manager_gui.py
-```
-
-Or use the batch launcher:
-
-```
-launch_download_manager_gui.bat
-```
-
-### CLI Usage
-
-```bash
-# Download up to 40 songs with 2 workers
-python musicscript.py --workers 2 --limit 40
-
-# Auto-loop until playlist is complete
-python filerunn.py
-```
-
-### Project Structure
-
-```
-DownloadManager/
-├── download_manager_gui.py   # GUI entry point
-├── musicscript.py             # Core Spotify playlist downloader
-├── youtube_video_downloader.py# YouTube downloader
-├── filerunn.py                # Auto-retry batch runner
-├── requirements.txt           # Python dependencies
-├── setup.py                   # cx_Freeze build config
-├── build_installer.ps1        # PowerShell script to build MSI/ZIP
-├── launch_download_manager_gui.bat
-├── icon.png
-├── readme.md                  # Detailed auth & usage notes
-├── installer/                 # Installer assets
-│   ├── LICENSE.rtf
-│   └── README.txt
-└── gui/                       # PySide6 GUI modules
-    ├── __init__.py
-    ├── backend.py
-    ├── main_window.py
-    ├── settings_tab.py
-    ├── setup_wizard.py
-    ├── spotify_tab.py
-    ├── theme.py
-    └── youtube_tab.py
-```
-
-### Building the Installer
-
-```powershell
-# Requires cx_Freeze, PySide6, spotdl, yt-dlp, Pillow
-cd DownloadManager
-.\build_installer.ps1
-```
-
----
-
-> **Disclaimer**: Use this app only for media you own, created yourself, or are otherwise allowed to download.
+- Follow the coding standards specific to the language of the tool.
+- Ensure all new features or bug fixes include an updated `README.md` inside their respective directories.
+- Ensure your changes adhere to the universal `.gitignore` rules at the root level.
