@@ -17,47 +17,45 @@
 // ThreadSafeQueue Implementation
 // =====================================================================
 
-ThreadSafeQueue::ThreadSafeQueue() {
-    InitializeCriticalSectionAndSpinCount(&cs_, 4000);
-    cs_initialized_ = true;
-}
-
-ThreadSafeQueue::~ThreadSafeQueue() {
-    if (cs_initialized_) {
-        DeleteCriticalSection(&cs_);
-    }
+void ThreadSafeQueue::abort() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    aborted_ = true;
+    cv_push_.notify_all();
 }
 
 void ThreadSafeQueue::push(std::wstring path) {
-    EnterCriticalSection(&cs_);
+    std::unique_lock<std::mutex> lock(mutex_);
+    cv_push_.wait(lock, [this]() { return queue_.size() < max_size_ || aborted_; });
+    if (aborted_) return;
     queue_.push_back(std::move(path));
-    LeaveCriticalSection(&cs_);
 }
 
 bool ThreadSafeQueue::try_pop(std::wstring& out) {
-    EnterCriticalSection(&cs_);
+    std::lock_guard<std::mutex> lock(mutex_);
     if (queue_.empty()) {
-        LeaveCriticalSection(&cs_);
         return false;
     }
     out = std::move(queue_.front());
     queue_.pop_front();
-    LeaveCriticalSection(&cs_);
+    cv_push_.notify_one();
     return true;
 }
 
 bool ThreadSafeQueue::empty() const {
-    EnterCriticalSection(&cs_);
-    bool result = queue_.empty();
-    LeaveCriticalSection(&cs_);
-    return result;
+    std::lock_guard<std::mutex> lock(mutex_);
+    return queue_.empty();
 }
 
 size_t ThreadSafeQueue::size() const {
-    EnterCriticalSection(&cs_);
-    size_t result = queue_.size();
-    LeaveCriticalSection(&cs_);
-    return result;
+    std::lock_guard<std::mutex> lock(mutex_);
+    return queue_.size();
+}
+
+void ThreadSafeQueue::clear() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    queue_.clear();
+    aborted_ = false;
+    cv_push_.notify_all();
 }
 
 // =====================================================================
@@ -114,7 +112,9 @@ DWORD WINAPI SearchEngine::CrawlThreadProc(LPVOID param) {
 // Start Indexing
 // ---------------------------------------------------------------------
 void SearchEngine::StartIndexing() {
-    if (indexing_active_.load()) return;
+    if (indexing_active_.load()) {
+        StopIndexing(); // Cleanly stop previous run
+    }
 
     // Reset state
     stop_requested_.store(false);
@@ -133,6 +133,7 @@ void SearchEngine::StartIndexing() {
 
     total_files_.store(0);
     dir_count_.store(0);
+    work_queue_.clear();
 
     // Enumerate drives and seed the work queue
     EnumerateDrives();
@@ -147,7 +148,6 @@ void SearchEngine::StartIndexing() {
             0, NULL
         );
         if (threads_[i]) {
-            // Set lower priority for crawler threads to prevent CPU spikes
             SetThreadPriority(threads_[i], THREAD_PRIORITY_BELOW_NORMAL);
         }
     }
@@ -158,10 +158,19 @@ void SearchEngine::StartIndexing() {
 // ---------------------------------------------------------------------
 void SearchEngine::StopIndexing() {
     stop_requested_.store(true);
+    work_queue_.abort(); // Unblock any pushers
 
-    // Wait for all threads to finish (with timeout)
+    // Wait for all valid threads to finish (INFINITE to prevent UAF)
     if (thread_count_ > 0) {
-        WaitForMultipleObjects(thread_count_, threads_, TRUE, 5000);
+        std::vector<HANDLE> valid_handles;
+        for (uint32_t i = 0; i < thread_count_; ++i) {
+            if (threads_[i] != NULL) {
+                valid_handles.push_back(threads_[i]);
+            }
+        }
+        if (!valid_handles.empty()) {
+            WaitForMultipleObjects((DWORD)valid_handles.size(), valid_handles.data(), TRUE, INFINITE);
+        }
         for (uint32_t i = 0; i < thread_count_; ++i) {
             if (threads_[i]) {
                 CloseHandle(threads_[i]);
@@ -180,10 +189,9 @@ void SearchEngine::StopIndexing() {
 void SearchEngine::CrawlWorker() {
     std::wstring dir_path;
     std::vector<FileRecord> local_batch;
-    local_batch.reserve(1000);
-
+    local_batch.reserve(100);
+    
     while (!stop_requested_.load(std::memory_order_relaxed)) {
-        // Increment active_workers_ before trying to pop to prevent premature termination race
         active_workers_.fetch_add(1, std::memory_order_acq_rel);
 
         if (work_queue_.try_pop(dir_path)) {
@@ -192,23 +200,19 @@ void SearchEngine::CrawlWorker() {
         } else {
             active_workers_.fetch_sub(1, std::memory_order_acq_rel);
             
-            // Queue is empty. Check if all workers are truly idle and queue is still empty
             if (active_workers_.load(std::memory_order_acquire) == 0 && work_queue_.empty()) {
-                break; // Deterministic shutdown, no races!
+                break; 
             }
-            Sleep(1); // Brief sleep to avoid busy-waiting
+            Sleep(1); 
         }
 
-        // Check cache limit
         if (total_files_.load(std::memory_order_relaxed) >= Config::MAX_CACHE_FILES) {
-            break; // Cache full
+            break; 
         }
     }
 
-    // Flush any remaining local batch items before terminating
     AddFileBatch(local_batch);
 
-    // If this is the last active worker, signal completion
     if (active_workers_.load(std::memory_order_relaxed) == 0) {
         indexing_active_.store(false, std::memory_order_relaxed);
         SetEvent(completion_event_);
@@ -220,7 +224,8 @@ void SearchEngine::CrawlWorker() {
 // ---------------------------------------------------------------------
 void SearchEngine::ProcessDirectory(const std::wstring& dir_path, std::vector<FileRecord>& local_batch) {
     // Check cache limit before processing
-    if (total_files_.load(std::memory_order_relaxed) >= Config::MAX_CACHE_FILES) {
+    if (total_files_.load(std::memory_order_relaxed) >= Config::MAX_CACHE_FILES || 
+        dir_count_.load(std::memory_order_relaxed) >= Config::MAX_CACHE_DIRS) {
         return;
     }
 
@@ -323,12 +328,16 @@ void SearchEngine::AddFileBatch(std::vector<FileRecord>& local_batch) {
 
     AcquireSRWLockExclusive(&file_lock_);
     
+    size_t inserted = local_batch.size();
     if (files_.size() + local_batch.size() > Config::MAX_CACHE_FILES) {
         size_t allowed = Config::MAX_CACHE_FILES - files_.size();
         if (allowed > 0) {
             files_.insert(files_.end(), 
                           std::make_move_iterator(local_batch.begin()), 
                           std::make_move_iterator(local_batch.begin() + allowed));
+            inserted = allowed;
+        } else {
+            inserted = 0;
         }
     } else {
         files_.insert(files_.end(), 
@@ -338,7 +347,9 @@ void SearchEngine::AddFileBatch(std::vector<FileRecord>& local_batch) {
     
     ReleaseSRWLockExclusive(&file_lock_);
     
-    total_files_.fetch_add(local_batch.size(), std::memory_order_relaxed);
+    if (inserted > 0) {
+        total_files_.fetch_add(static_cast<uint32_t>(inserted), std::memory_order_relaxed);
+    }
     local_batch.clear();
 }
 
@@ -367,29 +378,9 @@ bool SearchEngine::ContainsCI(const wchar_t* haystack, size_t haystack_len,
                                const wchar_t* needle,   size_t needle_len) {
     if (needle_len == 0) return true;
     if (needle_len > haystack_len) return false;
-
-    size_t limit = haystack_len - needle_len;
-    for (size_t i = 0; i <= limit; ++i) {
-        bool match = true;
-        for (size_t j = 0; j < needle_len; ++j) {
-            wchar_t h = haystack[i + j];
-            wchar_t n = needle[j];
-            
-            // Fast ASCII lower-casing, fallback to standard towlower for Unicode
-            if (h >= L'A' && h <= L'Z') h += 32;
-            else if (h > 127) h = towlower(h);
-            
-            if (n >= L'A' && n <= L'Z') n += 32;
-            else if (n > 127) n = towlower(n);
-
-            if (h != n) {
-                match = false;
-                break;
-            }
-        }
-        if (match) return true;
-    }
-    return false;
+    
+    // haystack and needle are guaranteed to be null-terminated from c_str()
+    return StrStrIW(haystack, needle) != NULL;
 }
 
 // ---------------------------------------------------------------------
@@ -565,31 +556,39 @@ void SearchEngine::Search(const std::wstring& query, std::vector<SearchResult>& 
                     SearchEngine* eng = data->engine;
                     const uint32_t local_max = Config::MAX_DISPLAY_RESULTS / Config::SEARCH_THREADS + 1;
 
-                    AcquireSRWLockShared(&eng->file_lock_);
-                    for (size_t i = data->start_idx;
-                         i < data->end_idx && data->local_results.size() < local_max;
-                         ++i)
-                    {
-                        const FileRecord& rec = eng->files_[i];
+                    for (size_t i = data->start_idx; i < data->end_idx && data->local_results.size() < local_max; ) {
+                        AcquireSRWLockShared(&eng->file_lock_);
+                        size_t chunk_end = i + 100; // REDUCED from 10000 to prevent starvation
+                        if (chunk_end > data->end_idx) chunk_end = data->end_idx;
+                        if (chunk_end > eng->files_.size()) chunk_end = eng->files_.size();
                         
-                        if (data->search_path) {
-                            std::wstring full_path = eng->BuildFullPath(rec.dir_index, rec.name);
-                            if (MatchString(full_path.c_str(), full_path.size(),
-                                            data->needle, data->needle_len,
-                                            data->match_type, data->case_sensitive))
-                            {
-                                data->local_results.push_back({rec.dir_index, rec.name});
-                            }
-                        } else {
-                            if (MatchString(rec.name.c_str(), rec.name.size(),
-                                            data->needle, data->needle_len,
-                                            data->match_type, data->case_sensitive))
-                            {
-                                data->local_results.push_back({rec.dir_index, rec.name});
+                        if (i >= chunk_end) {
+                            ReleaseSRWLockShared(&eng->file_lock_);
+                            break; // Fix infinite spin deadlock if files_.size() shrank
+                        }
+
+                        for (; i < chunk_end && data->local_results.size() < local_max; ++i) {
+                            const FileRecord& rec = eng->files_[i];
+                            
+                            if (data->search_path) {
+                                std::wstring full_path = eng->BuildFullPath(rec.dir_index, rec.name);
+                                if (MatchString(full_path.c_str(), full_path.size(),
+                                                data->needle, data->needle_len,
+                                                data->match_type, data->case_sensitive))
+                                {
+                                    data->local_results.push_back({rec.dir_index, rec.name});
+                                }
+                            } else {
+                                if (MatchString(rec.name.c_str(), rec.name.size(),
+                                                data->needle, data->needle_len,
+                                                data->match_type, data->case_sensitive))
+                                {
+                                    data->local_results.push_back({rec.dir_index, rec.name});
+                                }
                             }
                         }
+                        ReleaseSRWLockShared(&eng->file_lock_);
                     }
-                    ReleaseSRWLockShared(&eng->file_lock_);
 
                     // Now resolve full paths (needs dir_lock_ but not file_lock_, zero std::stoul parsing overhead!)
                     data->resolved_results.reserve(data->local_results.size());
@@ -606,17 +605,29 @@ void SearchEngine::Search(const std::wstring& query, std::vector<SearchResult>& 
             );
         }
 
-        // Wait for all search threads
-        WaitForMultipleObjects(num_threads, handles.data(), TRUE, INFINITE);
-
-        // Merge results
+        std::vector<HANDLE> valid_handles;
+        valid_handles.reserve(num_threads);
         for (uint32_t t = 0; t < num_threads; ++t) {
-            CloseHandle(handles[t]);
-            for (auto& sr : td[t].resolved_results) {
-                if (results.size() >= MAX_RESULTS) break;
-                results.push_back(std::move(sr));
+            if (handles[t] != NULL) {
+                valid_handles.push_back(handles[t]);
             }
-            if (results.size() >= MAX_RESULTS) break;
+        }
+
+        // Wait for all search threads
+        if (!valid_handles.empty()) {
+            WaitForMultipleObjects((DWORD)valid_handles.size(), valid_handles.data(), TRUE, INFINITE);
+        }
+
+        // Close handles and merge results
+        for (uint32_t t = 0; t < num_threads; ++t) {
+            if (handles[t] != NULL) {
+                CloseHandle(handles[t]);
+                handles[t] = NULL;
+                for (auto& sr : td[t].resolved_results) {
+                    if (results.size() >= MAX_RESULTS) break;
+                    results.push_back(std::move(sr));
+                }
+            }
         }
     }
 

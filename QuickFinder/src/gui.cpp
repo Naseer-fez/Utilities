@@ -173,6 +173,10 @@ LRESULT CALLBACK ButtonSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         
         RECT rc;
         GetClientRect(hwnd, &rc);
+        if (rc.right == 0 || rc.bottom == 0) {
+            EndPaint(hwnd, &ps);
+            return 0;
+        }
         
         // Double-buffering to eliminate any control flickering
         HDC memDC = CreateCompatibleDC(hdc);
@@ -404,6 +408,11 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         int w = rc.right - rc.left;
         int h = rc.bottom - rc.top;
 
+        if (w == 0 || h == 0) {
+            EndPaint(hwnd_, &ps);
+            return 0;
+        }
+
         // Double-buffered rendering of the entire window area
         HDC memDC = CreateCompatibleDC(hdc);
         HBITMAP memBM = CreateCompatibleBitmap(hdc, w, h);
@@ -578,7 +587,11 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                             if (dest) {
                                 memcpy(dest, path.c_str(), bytes);
                                 GlobalUnlock(hMem);
-                                SetClipboardData(CF_UNICODETEXT, hMem);
+                                if (!SetClipboardData(CF_UNICODETEXT, hMem)) {
+                                    GlobalFree(hMem);
+                                }
+                            } else {
+                                GlobalFree(hMem);
                             }
                         }
                         CloseClipboard();

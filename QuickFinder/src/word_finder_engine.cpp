@@ -50,7 +50,10 @@ bool WordFinderEngine::IsTextFile(const std::wstring& filename) const {
     if (dot_pos == std::wstring::npos) return false; // No extension, assume binary for safety
 
     std::wstring ext = filename.substr(dot_pos);
-    for (auto& c : ext) c = towlower(c); // to lowercase
+    for (auto& c : ext) {
+        if (c >= L'A' && c <= L'Z') c += 32;
+        else if (c > 127) c = towlower(c);
+    }
     
     return text_extensions_.find(ext) != text_extensions_.end();
 }
@@ -87,16 +90,42 @@ bool WordFinderEngine::SearchFileContent(const std::wstring& full_path, const st
     // Very basic and fast strstr search for UTF-8/ASCII data.
     // For production, a custom Boyer-Moore or similar is better, but this is fast enough for memory-mapped files.
     if (options.case_sensitive) {
-        // Fast byte-level search
-        auto it = std::search(pData, pData + len, needle.begin(), needle.end());
-        if (it != pData + len) found = true;
+        // Fast byte-level search using string_view
+        std::string_view sv(pData, len);
+        if (sv.find(needle) != std::string_view::npos) found = true;
     } else {
-        // Case-insensitive byte-level search (assuming ASCII subset of UTF-8)
-        auto it = std::search(pData, pData + len, needle.begin(), needle.end(), 
-            [](char c1, char c2) {
-                return std::tolower((unsigned char)c1) == std::tolower((unsigned char)c2);
-            });
-        if (it != pData + len) found = true;
+        static char lower_map[256];
+        static bool init = false;
+        if (!init) {
+            for (int i = 0; i < 256; ++i) {
+                lower_map[i] = (i >= 'A' && i <= 'Z') ? (char)(i + 32) : (char)i;
+            }
+            init = true;
+        }
+
+        std::string lower_needle = needle;
+        for (char& c : lower_needle) {
+            c = lower_map[(unsigned char)c];
+        }
+        size_t n_len = lower_needle.size();
+        if (n_len <= len) {
+            size_t limit = len - n_len;
+            for (size_t i = 0; i <= limit; ++i) {
+                if (lower_map[(unsigned char)pData[i]] == lower_needle[0]) {
+                    bool match = true;
+                    for (size_t j = 1; j < n_len; ++j) {
+                        if (lower_map[(unsigned char)pData[i + j]] != lower_needle[j]) {
+                            match = false;
+                            break;
+                        }
+                    }
+                    if (match) {
+                        found = true;
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     UnmapViewOfFile(pData);
@@ -119,15 +148,28 @@ void WordFinderEngine::Search(const std::wstring& query, std::vector<SearchResul
     // Get all files from SearchEngine
     std::vector<FileRecord> text_files;
     
+    size_t total_files = 0;
     AcquireSRWLockShared(&engine_->file_lock_);
-    size_t total_files = engine_->files_.size();
-    text_files.reserve(total_files / 10); // Estimate 10% are text
-    for (size_t i = 0; i < total_files; ++i) {
-        if (IsTextFile(engine_->files_[i].name)) {
-            text_files.push_back(engine_->files_[i]);
-        }
-    }
+    total_files = engine_->files_.size();
     ReleaseSRWLockShared(&engine_->file_lock_);
+    
+    text_files.reserve(total_files / 10); // Estimate 10% are text
+    
+    for (size_t i = 0; i < total_files; ) {
+        AcquireSRWLockShared(&engine_->file_lock_);
+        size_t chunk_end = i + 100; // REDUCED from 10000 to prevent starvation
+        if (chunk_end > engine_->files_.size()) chunk_end = engine_->files_.size();
+        if (i >= chunk_end) {
+            ReleaseSRWLockShared(&engine_->file_lock_);
+            break;
+        }
+        for (; i < chunk_end; ++i) {
+            if (IsTextFile(engine_->files_[i].name)) {
+                text_files.push_back(engine_->files_[i]);
+            }
+        }
+        ReleaseSRWLockShared(&engine_->file_lock_);
+    }
 
     if (text_files.empty()) {
         last_search_time_ms_ = 0.0;

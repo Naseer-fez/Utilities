@@ -40,6 +40,8 @@ namespace Config {
     constexpr uint32_t MAX_DISPLAY_RESULTS  = 500;
     // Minimum query length to trigger search
     constexpr uint32_t MIN_QUERY_LENGTH     = 2;
+    // Maximum number of directories to prevent memory exhaustion
+    constexpr uint32_t MAX_CACHE_DIRS       = 100'000;
 }
 
 // =====================================================================
@@ -67,15 +69,19 @@ public:
     bool try_pop(std::wstring& out);
     bool empty() const;
     size_t size() const;
+    void clear();
+    void abort(); // Wakes up pushers if aborted
 
 private:
-    mutable CRITICAL_SECTION cs_;
+    mutable std::mutex mutex_;
+    std::condition_variable cv_push_;
     std::deque<std::wstring> queue_;
-    bool cs_initialized_ = false;
+    bool aborted_ = false;
+    const size_t max_size_ = 50000;
 
 public:
-    ThreadSafeQueue();
-    ~ThreadSafeQueue();
+    ThreadSafeQueue() = default;
+    ~ThreadSafeQueue() { abort(); }
     ThreadSafeQueue(const ThreadSafeQueue&) = delete;
     ThreadSafeQueue& operator=(const ThreadSafeQueue&) = delete;
 };
@@ -146,6 +152,7 @@ private:
     std::atomic<bool>         indexing_active_{false};
     std::atomic<bool>         stop_requested_{false};
     std::atomic<int>          active_workers_{0};
+    std::atomic<uint32_t>     indexing_generation_{0};
 
     // Worker threads
     HANDLE                    threads_[Config::CRAWLER_THREADS];
