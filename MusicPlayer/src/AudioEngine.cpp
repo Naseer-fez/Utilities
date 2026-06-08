@@ -13,16 +13,21 @@ AudioEngine::~AudioEngine() {
 
 int AudioEngine::generateAliasId() {
     static int id = 0;
-    return ++id;
+    id = (id + 1) % 2;
+    return id;
 }
 
 static std::wstring GetShortPath(const std::wstring& longPath) {
     wchar_t shortPath[MAX_PATH];
     DWORD result = GetShortPathNameW(longPath.c_str(), shortPath, MAX_PATH);
     if (result == 0 || result > MAX_PATH) {
-        return longPath;
+        std::wstring safePath = longPath;
+        safePath.erase(std::remove(safePath.begin(), safePath.end(), L'\"'), safePath.end());
+        return safePath;
     }
-    return std::wstring(shortPath);
+    std::wstring safeShortPath(shortPath);
+    safeShortPath.erase(std::remove(safeShortPath.begin(), safeShortPath.end(), L'\"'), safeShortPath.end());
+    return safeShortPath;
 }
 
 bool AudioEngine::loadAndPlay(const std::wstring& filePath) {
@@ -31,7 +36,8 @@ bool AudioEngine::loadAndPlay(const std::wstring& filePath) {
     currentAlias = L"audio_" + std::to_wstring(generateAliasId());
     std::wstring shortPath = GetShortPath(filePath);
     
-    std::wstring ext = filePath.substr(filePath.find_last_of(L".") + 1);
+    size_t dotPos = filePath.find_last_of(L".");
+    std::wstring ext = (dotPos == std::wstring::npos) ? L"" : filePath.substr(dotPos + 1);
     std::transform(ext.begin(), ext.end(), ext.begin(), ::towlower);
     
     std::wstring typeHint = L"mpegvideo";
@@ -71,7 +77,7 @@ bool AudioEngine::loadAndPlay(const std::wstring& filePath) {
     setVolume(currentVolume);
 
     // Cache duration right after load to prevent repeated status queries on every timer tick
-    wchar_t buffer[128];
+    wchar_t buffer[128] = { 0 };
     std::wstring durationCmd = L"status " + currentAlias + L" length";
     if (mciSendStringW(durationCmd.c_str(), buffer, 128, NULL) == 0) {
         try {
@@ -131,13 +137,15 @@ void AudioEngine::updateStatus() {
         return;
     }
     
-    wchar_t buffer[128];
+    wchar_t buffer[128] = { 0 };
     std::wstring command = L"status " + currentAlias + L" mode";
-    mciSendStringW(command.c_str(), buffer, 128, NULL);
-    
-    std::wstring status(buffer);
-    if (status.find(L"playing") != std::wstring::npos) {
-        playing = true;
+    if (mciSendStringW(command.c_str(), buffer, 128, NULL) == 0) {
+        std::wstring status(buffer);
+        if (status.find(L"playing") != std::wstring::npos) {
+            playing = true;
+        } else {
+            playing = false;
+        }
     } else {
         playing = false;
     }
@@ -149,14 +157,16 @@ int AudioEngine::getDuration() {
 
 int AudioEngine::getPosition() {
     if (currentAlias.empty()) return 0;
-    wchar_t buffer[128];
+    wchar_t buffer[128] = { 0 };
     std::wstring command = L"status " + currentAlias + L" position";
-    mciSendStringW(command.c_str(), buffer, 128, NULL);
-    try {
-        return std::stoi(buffer);
-    } catch (...) {
-        return 0;
+    if (mciSendStringW(command.c_str(), buffer, 128, NULL) == 0) {
+        try {
+            return std::stoi(buffer);
+        } catch (...) {
+            return 0;
+        }
     }
+    return 0;
 }
 
 void AudioEngine::setPosition(int ms) {
@@ -175,7 +185,8 @@ bool AudioEngine::loadWithoutPlaying(const std::wstring& filePath) {
     currentAlias = L"audio_" + std::to_wstring(generateAliasId());
     std::wstring shortPath = GetShortPath(filePath);
     
-    std::wstring ext = filePath.substr(filePath.find_last_of(L".") + 1);
+    size_t dotPos = filePath.find_last_of(L".");
+    std::wstring ext = (dotPos == std::wstring::npos) ? L"" : filePath.substr(dotPos + 1);
     std::transform(ext.begin(), ext.end(), ext.begin(), ::towlower);
     
     std::wstring typeHint = L"mpegvideo";
@@ -208,7 +219,7 @@ bool AudioEngine::loadWithoutPlaying(const std::wstring& filePath) {
     // Apply the active volume level to the loaded alias
     setVolume(currentVolume);
 
-    wchar_t buffer[128];
+    wchar_t buffer[128] = { 0 };
     std::wstring durationCmd = L"status " + currentAlias + L" length";
     if (mciSendStringW(durationCmd.c_str(), buffer, 128, NULL) == 0) {
         try {

@@ -6,11 +6,12 @@
 #include <string>
 #include <algorithm>
 #include <fstream>
+#include <thread>
+#include <atomic>
 
 #include "PlayerGUI.h"
 #include "AudioEngine.h"
 #include "Shuffler.h"
-#include "Database.h"
 
 #define TIMER_ID 1
 #define TIMER_INTERVAL 100
@@ -20,13 +21,12 @@ namespace fs = std::filesystem;
 #include <cwctype>
 
 // Global Instances
+std::atomic<int> g_SearchCounter{0};
 AudioEngine g_Audio;
 Shuffler g_Shuffler;
-Database g_DB;
 PlayerGUI* g_GUI = nullptr;
 std::wstring g_CurrentSongPath;
 std::wstring g_AppDir;
-HHOOK g_hKeyboardHook = NULL;
 bool g_IsPlaying = false;
 bool g_IsDraggingTrackbar = false;
 std::vector<std::wstring> g_DisplayedPlaylist;
@@ -120,7 +120,7 @@ int FuzzyMatchScore(const std::wstring& target, const std::wstring& query) {
 
 // Highlight the currently playing song in the playlist listbox
 void UpdatePlaylistHighlight() {
-    if (g_CurrentSongPath.empty()) return;
+    if (!g_GUI || g_CurrentSongPath.empty()) return;
     auto it = std::find(g_DisplayedPlaylist.begin(), g_DisplayedPlaylist.end(), g_CurrentSongPath);
     if (it != g_DisplayedPlaylist.end()) {
         int idx = static_cast<int>(std::distance(g_DisplayedPlaylist.begin(), it));
@@ -130,39 +130,47 @@ void UpdatePlaylistHighlight() {
     }
 }
 
-// Filters the displayed playlist using the fuzzy match scoring algorithm
+// Filters the displayed playlist using the fuzzy match scoring algorithm (Asynchronous)
 void FilterPlaylist(const std::wstring& query) {
-    const auto& original = g_Shuffler.getPlaylist();
-    g_DisplayedPlaylist.clear();
+    if (!g_GUI) return;
     
-    if (query.empty()) {
-        g_DisplayedPlaylist = original;
-    } else {
-        std::vector<std::pair<std::wstring, int>> matched;
-        for (const auto& songPath : original) {
-            fs::path p(songPath);
-            std::wstring filename = p.stem().wstring();
-            int score = FuzzyMatchScore(filename, query);
-            if (score >= 0) {
-                matched.push_back({songPath, score});
+    int currentSearch = ++g_SearchCounter;
+    std::thread([query, currentSearch]() {
+        const auto& original = g_Shuffler.getPlaylist();
+        auto* matched = new std::vector<std::wstring>();
+        
+        if (query.empty()) {
+            *matched = original;
+        } else {
+            std::vector<std::pair<std::wstring, int>> matchedPairs;
+            for (const auto& songPath : original) {
+                if (currentSearch != g_SearchCounter) {
+                    delete matched;
+                    return; // Cancelled by newer search
+                }
+                fs::path p(songPath);
+                std::wstring filename = p.stem().wstring();
+                int score = FuzzyMatchScore(filename, query);
+                if (score >= 0) {
+                    matchedPairs.push_back({songPath, score});
+                }
+            }
+            
+            std::sort(matchedPairs.begin(), matchedPairs.end(), [](const auto& a, const auto& b) {
+                return a.second > b.second;
+            });
+            
+            for (const auto& m : matchedPairs) {
+                matched->push_back(m.first);
             }
         }
         
-        // Sort matching songs by fuzzy score (highest score first)
-        std::sort(matched.begin(), matched.end(), [](const auto& a, const auto& b) {
-            return a.second > b.second;
-        });
-        
-        for (const auto& m : matched) {
-            g_DisplayedPlaylist.push_back(m.first);
+        if (currentSearch == g_SearchCounter && g_GUI && g_GUI->getMainWindow()) {
+            PostMessageW(g_GUI->getMainWindow(), WM_USER + 4, (WPARAM)matched, currentSearch);
+        } else {
+            delete matched;
         }
-    }
-    
-    // Populate GUI listbox with only the filtered songs
-    g_GUI->populatePlaylist(g_DisplayedPlaylist);
-    
-    // Restore highlighted selection
-    UpdatePlaylistHighlight();
+    }).detach();
 }
 
 // Forward Declarations
@@ -173,10 +181,20 @@ void PlaySongAtIndex(int idx);
 void LoadSongAtIndexWithoutPlaying(int idx);
 void ScanDirectory(const std::wstring& dir);
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
-LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam);
 LRESULT CALLBACK ButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
 LRESULT CALLBACK TrackbarSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
 LRESULT CALLBACK PlaylistListBoxSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
+
+std::wstring GetConfigPath() {
+    wchar_t path[MAX_PATH];
+    if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_APPDATA, NULL, 0, path))) {
+        std::wstring dir = std::wstring(path) + L"\\AntigravityMusicPlayer";
+        std::error_code ec;
+        fs::create_directories(dir, ec);
+        return dir + L"\\lastfolder.txt";
+    }
+    return g_AppDir + L"\\lastfolder.txt";
+}
 
 std::wstring BrowseForFolder(HWND hwndOwner) {
     wchar_t displayName[MAX_PATH] = L"";
@@ -208,35 +226,41 @@ void PlaySongAtIndex(int idx) {
     int currentIdx = idx;
     bool success = false;
     
-    while (skipAttempts < 5) {
+    while (skipAttempts < playlist.size()) {
         std::wstring songPath = playlist[currentIdx];
         if (g_Audio.loadAndPlay(songPath)) {
             g_CurrentSongPath = songPath;
             g_Shuffler.selectSong(songPath);
             fs::path p(songPath);
-            g_GUI->updateSongLabel(p.stem().wstring());
-            g_GUI->updatePlayPauseButton(true);
+            if (g_GUI) {
+                g_GUI->updateSongLabel(p.stem().wstring());
+                g_GUI->updatePlayPauseButton(true);
+            }
             
             // Update listbox highlight to match current song in filtered results
             UpdatePlaylistHighlight();
             
-            g_GUI->setTrackbarRange(g_Audio.getDuration());
+            if (g_GUI) {
+                g_GUI->setTrackbarRange(g_Audio.getDuration());
+            }
             g_IsPlaying = true;
             success = true;
             break;
         } else {
             // If play fails, attempt to skip to the next track
             skipAttempts++;
-            g_Shuffler.getNextSong(); // Advance shuffler index
-            currentIdx = g_Shuffler.getSongIndexInPlaylist(g_Shuffler.getNextSong());
+            std::wstring nextSong = g_Shuffler.getNextSong();
+            currentIdx = g_Shuffler.getSongIndexInPlaylist(nextSong);
             if (currentIdx == -1) currentIdx = 0;
         }
     }
     
     if (!success) {
         g_Audio.stop();
-        g_GUI->updateSongLabel(L"Failed to play files. Try another folder.");
-        g_GUI->updatePlayPauseButton(false);
+        if (g_GUI) {
+            g_GUI->updateSongLabel(L"Failed to play files. Try another folder.");
+            g_GUI->updatePlayPauseButton(false);
+        }
         g_IsPlaying = false;
     }
 }
@@ -252,12 +276,16 @@ void LoadSongAtIndexWithoutPlaying(int idx) {
         g_CurrentSongPath = songPath;
         g_Shuffler.selectSong(songPath);
         fs::path p(songPath);
-        g_GUI->updateSongLabel(p.stem().wstring());
-        g_GUI->updatePlayPauseButton(false); // Show play icon (▶)
+        if (g_GUI) {
+            g_GUI->updateSongLabel(p.stem().wstring());
+            g_GUI->updatePlayPauseButton(false); // Show play icon (▶)
+        }
         
         UpdatePlaylistHighlight();
         
-        g_GUI->setTrackbarRange(g_Audio.getDuration());
+        if (g_GUI) {
+            g_GUI->setTrackbarRange(g_Audio.getDuration());
+        }
         g_IsPlaying = false;
     }
 }
@@ -299,83 +327,35 @@ void TogglePlayPause() {
 }
 
 void ScanDirectory(const std::wstring& dir) {
-    std::vector<std::wstring> audioFiles;
-    try {
-        if (fs::exists(dir) && fs::is_directory(dir)) {
-            for (const auto& entry : fs::recursive_directory_iterator(dir)) {
-                if (entry.is_regular_file()) {
-                    std::wstring ext = entry.path().extension().wstring();
-                    std::transform(ext.begin(), ext.end(), ext.begin(), ::towlower);
-                    if (ext == L".mp3" || ext == L".wav" || ext == L".wma" || ext == L".aac" ||
-                        ext == L".m4a" || ext == L".flac" || ext == L".ogg" || ext == L".mid" ||
-                        ext == L".midi" || ext == L".aiff" || ext == L".aif") {
-                        audioFiles.push_back(entry.path().wstring());
+    std::thread([dir]() {
+        auto* audioFiles = new std::vector<std::wstring>();
+        try {
+            if (fs::exists(dir) && fs::is_directory(dir)) {
+                for (const auto& entry : fs::recursive_directory_iterator(dir, fs::directory_options::skip_permission_denied)) {
+                    if (entry.is_regular_file()) {
+                        std::wstring ext = entry.path().extension().wstring();
+                        std::transform(ext.begin(), ext.end(), ext.begin(), ::towlower);
+                        if (ext == L".mp3" || ext == L".wav" || ext == L".wma" || ext == L".aac" ||
+                            ext == L".m4a" || ext == L".flac" || ext == L".ogg" || ext == L".mid" ||
+                            ext == L".midi" || ext == L".aiff" || ext == L".aif") {
+                            audioFiles->push_back(entry.path().wstring());
+                        }
                     }
                 }
             }
+        } catch (...) {
+            // Handle read permission issues during directory crawl gracefully
         }
-    } catch (...) {
-        // Handle read permission issues during directory crawl gracefully
-    }
-    
-    if (!audioFiles.empty()) {
-        g_Shuffler.loadPlaylist(audioFiles);
-        // Clear search text and reset displayed playlist
-        if (g_GUI->getSearchEdit()) {
-            SetWindowTextW(g_GUI->getSearchEdit(), L"");
+        
+        if (g_GUI && g_GUI->getMainWindow()) {
+            PostMessageW(g_GUI->getMainWindow(), WM_USER + 3, (WPARAM)audioFiles, 0);
+        } else {
+            delete audioFiles;
         }
-        FilterPlaylist(L"");
-        LoadSongAtIndexWithoutPlaying(0);
-    } else {
-        MessageBoxW(g_GUI->getMainWindow(), L"No supported audio files found in selected directory.", L"No Music Found", MB_OK | MB_ICONWARNING);
-    }
+    }).detach();
 }
 
-LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
-    if (nCode == HC_ACTION) {
-        KBDLLHOOKSTRUCT* pKey = (KBDLLHOOKSTRUCT*)lParam;
-        if (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN) {
-            switch (pKey->vkCode) {
-                case VK_MEDIA_PLAY_PAUSE:
-                    TogglePlayPause();
-                    return 1; // Consume key
-                case VK_MEDIA_NEXT_TRACK:
-                    PlayNextSong();
-                    return 1; // Consume key
-                case VK_MEDIA_PREV_TRACK:
-                    PlayPrevSong();
-                    return 1; // Consume key
-                case VK_MEDIA_STOP:
-                    g_Audio.stop();
-                    g_GUI->updatePlayPauseButton(false);
-                    g_IsPlaying = false;
-                    return 1; // Consume key
-                case VK_LEFT: {
-                    if (g_GUI && GetForegroundWindow() == g_GUI->getMainWindow()) {
-                        PlayPrevSong();
-                        return 1; // Consume key
-                    }
-                    break;
-                }
-                case VK_RIGHT: {
-                    if (g_GUI && GetForegroundWindow() == g_GUI->getMainWindow()) {
-                        static DWORD lastRightPressTime = 0;
-                        DWORD now = GetTickCount();
-                        if (now - lastRightPressTime < 500) {
-                            PlayNextSong();
-                            lastRightPressTime = 0;
-                        } else {
-                            lastRightPressTime = now;
-                        }
-                        return 1; // Consume key
-                    }
-                    break;
-                }
-            }
-        }
-    }
-    return CallNextHookEx(g_hKeyboardHook, nCode, wParam, lParam);
-}
+
 
 static HFONT s_hBtnFont = NULL;
 static HFONT s_hBtnSearchFont = NULL;
@@ -421,7 +401,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         
         case WM_USER + 1: {
             // Load last used folder path
-            std::wstring cachePath = g_AppDir + L"\\lastfolder.txt";
+            std::wstring cachePath = GetConfigPath();
             std::wifstream cacheFile(cachePath.c_str());
             if (cacheFile.is_open()) {
                 std::wstring cachedDir;
@@ -442,21 +422,46 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             }
             break;
         }
+        case WM_USER + 3: {
+            auto* audioFiles = (std::vector<std::wstring>*)wParam;
+            if (audioFiles && !audioFiles->empty()) {
+                g_Shuffler.loadPlaylist(*audioFiles);
+                if (g_GUI && g_GUI->getSearchEdit()) {
+                    SetWindowTextW(g_GUI->getSearchEdit(), L"");
+                }
+                FilterPlaylist(L"");
+                LoadSongAtIndexWithoutPlaying(0);
+            } else if (audioFiles) {
+                MessageBoxW(g_GUI->getMainWindow(), L"No supported audio files found in selected directory.", L"No Music Found", MB_OK | MB_ICONWARNING);
+            }
+            delete audioFiles;
+            break;
+        }
+        case WM_USER + 4: {
+            auto* matched = (std::vector<std::wstring>*)wParam;
+            int searchId = (int)lParam;
+            if (searchId == g_SearchCounter && matched) {
+                g_DisplayedPlaylist = *matched;
+                g_GUI->populatePlaylist(g_DisplayedPlaylist);
+                UpdatePlaylistHighlight();
+            }
+            delete matched;
+            break;
+        }
         case WM_TIMER: {
             if (wParam == TIMER_ID) {
                 if (g_IsPlaying) {
-                    int pos = g_Audio.getPosition();
-                    int dur = g_Audio.getDuration();
-                    if (!g_IsDraggingTrackbar) {
+                    // Native tracks auto-advancing check
+                    g_Audio.updateStatus();
+                    if (!g_Audio.isPlaying()) {
+                        PlayNextSong();
+                    } else if (!IsIconic(hWnd) && !g_IsDraggingTrackbar) {
+                        // Only fetch position and redraw GUI if the window is actually visible
+                        int pos = g_Audio.getPosition();
+                        int dur = g_Audio.getDuration();
                         g_GUI->updateTimeLabels(pos, dur);
                         SendMessageW(g_GUI->getTrackbar(), TBM_SETPOS, TRUE, pos);
                         InvalidateRect(g_GUI->getTrackbar(), NULL, FALSE);
-                    }
-                    
-                    // Native tracks auto-advancing check
-                    g_Audio.updateStatus();
-                    if (!g_Audio.isPlaying() && g_IsPlaying) {
-                        PlayNextSong();
                     }
                 }
             }
@@ -610,7 +615,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
                         ScanDirectory(path);
                         
                         // Cache the folder path
-                        std::wstring cachePath = g_AppDir + L"\\lastfolder.txt";
+                        std::wstring cachePath = GetConfigPath();
                         std::wofstream cacheFile(cachePath.c_str());
                         if (cacheFile.is_open()) {
                             cacheFile << path;
@@ -620,7 +625,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
                 }
                 
                 case ID_MENU_RECENT_FOLDER: {
-                    std::wstring cachePath = g_AppDir + L"\\lastfolder.txt";
+                    std::wstring cachePath = GetConfigPath();
                     std::wifstream cacheFile(cachePath.c_str());
                     if (cacheFile.is_open()) {
                         std::wstring cachedDir;
@@ -721,11 +726,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         }
         
         case WM_ACTIVATE: {
-            int state = LOWORD(wParam);
-            if (state == WA_INACTIVE || HIWORD(wParam) != 0) {
-                // Trim memory working set to the absolute minimum when inactive or minimized
-                SetProcessWorkingSetSize(GetCurrentProcess(), (SIZE_T)-1, (SIZE_T)-1);
-            }
+            // Trim memory ONLY when minimized, not on inactive, to avoid thrashing
             break;
         }
         
@@ -749,33 +750,36 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             } else {
                 SetTextColor(hdc, CLR_TEXT_PRIMARY);
             }
-            return (INT_PTR)g_GUI->getDarkBgBrush();
+            return g_GUI ? (INT_PTR)g_GUI->getDarkBgBrush() : (INT_PTR)GetStockObject(BLACK_BRUSH);
         }
         
         case WM_CTLCOLORLISTBOX: {
             HDC hdc = (HDC)wParam;
             SetBkMode(hdc, TRANSPARENT);
             SetTextColor(hdc, CLR_TEXT_PRIMARY);
-            return (INT_PTR)g_GUI->getDarkListBrush();
+            return g_GUI ? (INT_PTR)g_GUI->getDarkListBrush() : (INT_PTR)GetStockObject(BLACK_BRUSH);
         }
         
         case WM_CTLCOLOREDIT: {
             HDC hdc = (HDC)wParam;
             SetTextColor(hdc, CLR_TEXT_PRIMARY);
             SetBkColor(hdc, CLR_DARK_CTRL);
-            return (INT_PTR)g_GUI->getDarkCtrlBrush();
+            return g_GUI ? (INT_PTR)g_GUI->getDarkCtrlBrush() : (INT_PTR)GetStockObject(BLACK_BRUSH);
         }
         
         case WM_CTLCOLORBTN: {
-            return (INT_PTR)g_GUI->getDarkCtrlBrush();
+            return g_GUI ? (INT_PTR)g_GUI->getDarkCtrlBrush() : (INT_PTR)GetStockObject(BLACK_BRUSH);
         }
         
         case WM_ERASEBKGND: {
-            HDC hdc = (HDC)wParam;
-            RECT rc;
-            GetClientRect(hWnd, &rc);
-            FillRect(hdc, &rc, g_GUI->getDarkBgBrush());
-            return 1;
+            if (g_GUI) {
+                HDC hdc = (HDC)wParam;
+                RECT rc;
+                GetClientRect(hWnd, &rc);
+                FillRect(hdc, &rc, g_GUI->getDarkBgBrush());
+                return 1;
+            }
+            return 0;
         }
         
         case WM_PAINT: {
@@ -811,12 +815,21 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
                 RECT rc = dis->rcItem;
                 
                 // Draw menu button backgrounds (flat dark)
-                HBRUSH hBg = g_GUI->getDarkBgBrush();
+                HBRUSH hBg = NULL;
+                bool isTempBrush = false;
+                if (g_GUI) {
+                    hBg = g_GUI->getDarkBgBrush();
+                } else {
+                    hBg = CreateSolidBrush(CLR_DARK_BG);
+                    isTempBrush = true;
+                }
                 if (dis->itemState & ODS_SELECTED) {
+                    if (isTempBrush) DeleteObject(hBg);
                     hBg = CreateSolidBrush(RGB(36, 36, 48));
+                    isTempBrush = true;
                 }
                 FillRect(hdc, &rc, hBg);
-                if (dis->itemState & ODS_SELECTED) {
+                if (isTempBrush && hBg) {
                     DeleteObject(hBg);
                 }
                 
@@ -841,7 +854,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
                 bool isActiveToggle = false;
                 if (dis->CtlID == ID_BTN_SHUFFLE) {
                     isActiveToggle = g_Shuffler.isShuffleEnabled();
-                } else if (dis->CtlID == ID_BTN_PLAYLIST) {
+                } else if (dis->CtlID == ID_BTN_PLAYLIST && g_GUI) {
                     isActiveToggle = g_GUI->isPlaylistVisible();
                 }
                 
@@ -980,9 +993,19 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
                 RECT rc = dis->rcItem;
                 
                 bool selected = (dis->itemState & ODS_SELECTED);
-                HBRUSH hBg = selected ? CreateSolidBrush(RGB(48, 48, 64)) : g_GUI->getDarkListBrush();
+                HBRUSH hBg = NULL;
+                bool isTempBrush = false;
+                if (selected) {
+                    hBg = CreateSolidBrush(RGB(48, 48, 64));
+                    isTempBrush = true;
+                } else if (g_GUI) {
+                    hBg = g_GUI->getDarkListBrush();
+                } else {
+                    hBg = CreateSolidBrush(CLR_DARK_LIST);
+                    isTempBrush = true;
+                }
                 FillRect(hdc, &rc, hBg);
-                if (selected) DeleteObject(hBg);
+                if (isTempBrush && hBg) DeleteObject(hBg);
                 
                 // Get item text
                 wchar_t text[MAX_PATH];
@@ -1060,9 +1083,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         }
         
         case WM_DESTROY: {
-            if (g_hKeyboardHook) {
-                UnhookWindowsHookEx(g_hKeyboardHook);
-            }
             if (s_hBtnFont) {
                 DeleteObject(s_hBtnFont);
                 s_hBtnFont = NULL;
@@ -1119,8 +1139,14 @@ LRESULT CALLBACK PlaylistListBoxSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam
     if (uMsg == WM_LBUTTONUP) {
         // Let listbox update selection state
         LRESULT res = DefSubclassProc(hWnd, uMsg, wParam, lParam);
-        int idx = SendMessageW(hWnd, LB_GETCURSEL, 0, 0);
-        if (idx != LB_ERR) {
+        
+        // Use LB_ITEMFROMPOINT to verify the click is actually on an item,
+        // not the scrollbar or background.
+        DWORD itemInfo = (DWORD)SendMessageW(hWnd, LB_ITEMFROMPOINT, 0, lParam);
+        int isOutside = HIWORD(itemInfo);
+        int idx = LOWORD(itemInfo);
+        
+        if (isOutside == 0 && idx != -1) {
             PostMessageW(GetParent(hWnd), WM_USER + 2, idx, 0);
         }
         return res;
@@ -1163,9 +1189,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
     fs::path p(exePath);
     g_AppDir = p.parent_path().wstring();
     
-    // Load ratings database
-    g_DB.load(g_AppDir + L"\\ratings.csv");
-    
     INITCOMMONCONTROLSEX icex = { 0 };
     icex.dwSize = sizeof(icex);
     icex.dwICC = ICC_BAR_CLASSES;
@@ -1195,8 +1218,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
         return 0;
     }
     
-    // Low-level keyboard hook to capture global keyboard/Bluetooth media control inputs
-    g_hKeyboardHook = SetWindowsHookExW(WH_KEYBOARD_LL, LowLevelKeyboardProc, GetModuleHandle(NULL), 0);
     
     ShowWindow(hWnd, nCmdShow);
     
