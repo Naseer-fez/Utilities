@@ -12,7 +12,7 @@ VERSION = "1.1.0"
 EXE_NAME = "DownloadManager.exe"
 ICON_FILE = "icon.ico" if (ROOT / "icon.ico").exists() else "icon.png"
 
-include_files = [
+_candidate_files: list = [
     "icon.png",
     "playlist.csv",
     "musicscript.py",
@@ -20,7 +20,15 @@ include_files = [
     ("installer/README.txt", "README.txt"),
 ]
 if (ROOT / "icon.ico").exists():
-    include_files.append(("icon.ico", "icon.ico"))
+    _candidate_files.append(("icon.ico", "icon.ico"))
+
+# Only include files that actually exist so the build never fails on
+# optional assets (e.g. playlist.csv may not be tracked in git).
+include_files = []
+for entry in _candidate_files:
+    src = entry[0] if isinstance(entry, tuple) else entry
+    if (ROOT / src).exists():
+        include_files.append(entry)
 
 build_exe_options = {
     "includes": [

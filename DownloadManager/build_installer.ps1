@@ -91,9 +91,10 @@ if ($MsiOk -and (Test-Path $MsiPath)) {
     Write-Host "MSI packaging failed (known python-msilib FCI bug on Python 3.13+)."
     Write-Host "Falling back to portable ZIP distribution..."
 
-    $BuildDir = Join-Path $Root "build\exe.win-amd64-3.14"
-    if (-not (Test-Path $BuildDir)) {
-        throw "Frozen build directory not found: $BuildDir"
+    $BuildDir = Get-ChildItem -Path (Join-Path $Root "build") -Directory -Filter "exe.win-*" |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
+    if (-not $BuildDir -or -not (Test-Path $BuildDir)) {
+        throw "Frozen build directory not found under build\"
     }
 
     $DistDir = Join-Path $Root "dist"

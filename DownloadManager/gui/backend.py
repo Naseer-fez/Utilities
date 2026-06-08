@@ -17,7 +17,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+if getattr(sys, "frozen", False):
+    # cx_Freeze places gui/*.pyc under lib/gui/ so __file__ resolves to
+    # <build>/lib/gui/backend.pyc → .parent.parent == <build>/lib (wrong).
+    # sys.executable points to DownloadManager.exe in the build root.
+    BASE_DIR = Path(sys.executable).resolve().parent
+else:
+    BASE_DIR = Path(__file__).resolve().parent.parent
 MUSIC_SCRIPT = BASE_DIR / "musicscript.py"
 YOUTUBE_SCRIPT = BASE_DIR / "youtube_video_downloader.py"
 LEGACY_CONFIG_PATH = BASE_DIR / "download_manager_config.json"

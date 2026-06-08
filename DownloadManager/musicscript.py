@@ -418,6 +418,12 @@ def write_error_log(error_dir: Path, track: Track, error: str) -> None:
         handle.write("\n")
 
 
+def _is_real_python(exe: Path) -> bool:
+    """Return True only if exe looks like a Python interpreter, not a frozen GUI exe."""
+    name = exe.name.lower()
+    return name.startswith("python") and name.endswith(".exe")
+
+
 def python_has_spotdl(python_exe: Path) -> bool:
     try:
         completed = subprocess.run(
@@ -435,7 +441,10 @@ def python_has_spotdl(python_exe: Path) -> bool:
 def resolve_spotdl_runner() -> list[str] | None:
     candidates: list[Path] = []
 
-    if sys.executable:
+    # When frozen, sys.executable is the GUI exe (e.g. DownloadManager.exe),
+    # NOT a Python interpreter — calling it as a subprocess with -c/-m causes
+    # an access-violation crash (exit code 0xC0000005).  Skip it entirely.
+    if sys.executable and not getattr(sys, "frozen", False):
         candidates.append(Path(sys.executable))
 
     scoop_python = Path.home() / "scoop" / "apps" / "python" / "current" / "python.exe"
@@ -444,6 +453,10 @@ def resolve_spotdl_runner() -> list[str] | None:
     path_python = shutil.which("python")
     if path_python:
         candidates.append(Path(path_python))
+
+    path_python3 = shutil.which("python3")
+    if path_python3:
+        candidates.append(Path(path_python3))
 
     path_spotdl = shutil.which("spotdl")
     if path_spotdl:
@@ -460,6 +473,9 @@ def resolve_spotdl_runner() -> list[str] | None:
         if resolved in seen or not resolved.exists():
             continue
         seen.add(resolved)
+        # Guard: never use a frozen GUI exe as a Python runner
+        if not _is_real_python(resolved):
+            continue
         if python_has_spotdl(resolved):
             return [str(resolved), "-m", "spotdl"]
 
