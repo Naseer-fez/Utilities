@@ -1,0 +1,20 @@
+# LiveWallpaper Configuration
+# Place this file at %APPDATA%\LiveWallpaper\config.toml
+
+[wallpaper]
+# Path to the MP4 wallpaper file (H.264 only)
+path = ""
+# Target frame rate (1-60, default: 24)
+fps = 24
+
+[behavior]
+# Minutes of inactivity before freezing wallpaper (0 = disabled)
+idle_timeout_minutes = 5
+# Freeze wallpaper when on battery power
+pause_on_battery = true
+# Pause rendering when a fullscreen app is detected
+pause_on_fullscreen = true
+
+[advanced]
+# GPU preference: "integrated", "discrete", or "auto"
+gpu_preference = "integrated"

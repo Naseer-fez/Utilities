@@ -1,0 +1,57 @@
+#include <windows.h>
+#include "resource.h"
+
+// Version Information
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     1,0,0,0
+PRODUCTVERSION  1,0,0,0
+FILEFLAGSMASK   0x0L
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_APP
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "FileDescription", "LiveWallpaper - Ultra-Optimized Windows Live Wallpaper Manager"
+            VALUE "FileVersion", "1.0.0.0"
+            VALUE "InternalName", "LiveWallpaper"
+            VALUE "OriginalFilename", "LiveWallpaper.exe"
+            VALUE "ProductName", "LiveWallpaper"
+            VALUE "ProductVersion", "1.0.0.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 0x04B0
+    END
+END
+
+// Settings Dialog
+IDD_SETTINGS DIALOGEX 0, 0, 280, 220
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "LiveWallpaper Settings"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "Wallpaper File:", -1, 10, 12, 60, 8
+    EDITTEXT        IDC_WALLPAPER_PATH, 75, 10, 140, 14, ES_AUTOHSCROLL | ES_READONLY
+    PUSHBUTTON      "Browse...", IDC_BROWSE_BTN, 220, 10, 50, 14
+
+    GROUPBOX        "Playback", -1, 10, 35, 260, 45
+    LTEXT           "Frame Rate:", -1, 20, 52, 45, 8
+    CONTROL         "", IDC_FPS_SLIDER, "msctls_trackbar32", TBS_AUTOTICKS | WS_TABSTOP, 70, 50, 140, 15
+    LTEXT           "24 FPS", IDC_FPS_LABEL, 215, 52, 45, 8
+
+    GROUPBOX        "Behavior", -1, 10, 90, 260, 75
+    LTEXT           "Idle Timeout (min):", -1, 20, 108, 70, 8
+    EDITTEXT        IDC_IDLE_TIMEOUT, 95, 106, 30, 14, ES_NUMBER
+    AUTOCHECKBOX    "Pause on battery power", IDC_PAUSE_BATTERY, 20, 126, 120, 10
+    AUTOCHECKBOX    "Pause on fullscreen apps", IDC_PAUSE_FULLSCREEN, 20, 140, 120, 10
+
+    GROUPBOX        "GPU", -1, 10, 172, 260, 22
+    LTEXT           "Preferred GPU:", -1, 20, 180, 55, 8
+    COMBOBOX        IDC_GPU_COMBO, 80, 178, 100, 60, CBS_DROPDOWNLIST | WS_TABSTOP
+
+    DEFPUSHBUTTON   "Apply", IDC_APPLY_BTN, 165, 200, 50, 14
+    PUSHBUTTON      "Cancel", IDCANCEL, 220, 200, 50, 14
+END
