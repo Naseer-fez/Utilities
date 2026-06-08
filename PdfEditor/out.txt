@@ -1,0 +1,2 @@
+[2026-06-01 19:35:02.880] [info] PDFium library initialized.
+[2026-06-01 19:35:02.885] [info] RenderEngine started with 4 threads.
