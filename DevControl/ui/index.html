@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AetherMonitor // AI-Powered Core Diagnostics</title>
+    <!-- Google Fonts for premium branding and tech typography -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Inter:wght@300;400;500;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <!-- FontAwesome for modern cyber icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Chart.js for real-time telemetry graphs -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="brand">
+                <i class="fa-solid fa-microchip brand-icon"></i>
+                <div class="brand-text">
+                    <h1>AETHER</h1>
+                    <span>MONITOR AI</span>
+                </div>
+            </div>
+            
+            <div class="status-panel">
+                <span class="status-indicator"></span>
+                <span class="status-text">CONNECTING TELEMETRY</span>
+            </div>
+            
+            <nav class="nav-links">
+                <a href="#" class="nav-link active" data-tab="overview">
+                    <i class="fa-solid fa-gauge-high"></i> <span>Overview</span>
+                </a>
+                <a href="#" class="nav-link" data-tab="processes">
+                    <i class="fa-solid fa-rectangle-list"></i> <span>Processes</span>
+                </a>
+                <a href="#" class="nav-link" data-tab="docker">
+                    <i class="fa-solid fa-cubes"></i> <span>Docker</span>
+                </a>
+                <a href="#" class="nav-link" data-tab="apis">
+                    <i class="fa-solid fa-network-wired"></i> <span>APIs & Latency</span>
+                </a>
+                <a href="#" class="nav-link" data-tab="benchmarks">
+                    <i class="fa-solid fa-bolt"></i> <span>Benchmarks</span>
+                </a>
+                <a href="#" class="nav-link" data-tab="logs">
+                    <i class="fa-solid fa-receipt"></i> <span>Event Logs</span>
+                </a>
+                <a href="#" class="nav-link" data-tab="settings">
+                    <i class="fa-solid fa-gears"></i> <span>Settings</span>
+                </a>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <span>V1.0.0 Stable // Host Mode</span>
+            </div>
+        </aside>
+
+        <!-- Main Content Panes -->
+        <main class="main-content">
+            
+            <!-- TAB: OVERVIEW -->
+            <section id="tab-overview" class="tab-pane active">
+                <div class="flex-header">
+                    <div class="pane-header">
+                        <h2>Core Diagnostics Control Center</h2>
+                        <p>Real-time systems telemetry, core hardware loops, and AI diagnostic capabilities</p>
+                    </div>
+                </div>
+
+                <div class="overview-split">
+                    <!-- Left: Telemetry dials and graphs -->
+                    <div class="overview-left">
+                        <div class="telemetry-grid">
+                            <!-- CPU Dial -->
+                            <div class="glass-card telemetry-card">
+                                <div class="card-header">
+                                    <h3><i class="fa-solid fa-microchip icon-cyan"></i> CPU Utilization</h3>
+                                    <span class="badge" id="cpu-temp-badge">--°C</span>
+                                </div>
+                                <div class="circular-progress-container">
+                                    <svg class="circular-progress">
+                                        <circle class="bg" cx="50" cy="50" r="45"></circle>
+                                        <circle class="fg cyan-glow" id="cpu-circle" cx="50" cy="50" r="45" style="stroke-dashoffset: 282.74;"></circle>
+                                    </svg>
+                                    <div class="progress-val">
+                                        <span class="num" id="cpu-percent-txt">0</span><span class="pct">%</span>
+                                        <span class="sub" id="cpu-freq-txt">0 MHz</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- RAM Dial -->
+                            <div class="glass-card telemetry-card">
+                                <div class="card-header">
+                                    <h3><i class="fa-solid fa-memory icon-purple"></i> Memory (RAM)</h3>
+                                </div>
+                                <div class="circular-progress-container">
+                                    <svg class="circular-progress">
+                                        <circle class="bg" cx="50" cy="50" r="45"></circle>
+                                        <circle class="fg purple-glow" id="ram-circle" cx="50" cy="50" r="45" style="stroke-dashoffset: 282.74;"></circle>
+                                    </svg>
+                                    <div class="progress-val">
+                                        <span class="num" id="ram-percent-txt">0</span><span class="pct">%</span>
+                                        <span class="sub" id="ram-used-txt">0.0 / 0.0 GB</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- GPU Dial -->
+                            <div class="glass-card telemetry-card">
+                                <div class="card-header">
+                                    <h3><i class="fa-solid fa-fill-drip icon-green"></i> Graphics GPU</h3>
+                                    <span class="badge" id="gpu-temp-badge">--°C</span>
+                                </div>
+                                <div class="circular-progress-container">
+                                    <svg class="circular-progress">
+                                        <circle class="bg" cx="50" cy="50" r="45"></circle>
+                                        <circle class="fg green-glow" id="gpu-circle" cx="50" cy="50" r="45" style="stroke-dashoffset: 282.74;"></circle>
+                                    </svg>
+                                    <div class="progress-val">
+                                        <span class="num" id="gpu-percent-txt">0</span><span class="pct">%</span>
+                                        <span class="sub text-truncate" id="gpu-name-txt" style="max-width: 90px;">Detecting...</span>
+                                    </div>
+                                </div>
+                                <div class="gpu-sub-details" id="gpu-mem-txt" style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">
+                                    0.0 / 0.0 GB
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Network Speeds Card -->
+                        <div class="glass-card network-card">
+                            <div class="card-header">
+                                <h3><i class="fa-solid fa-arrow-right-arrow-left icon-cyan"></i> Network Traffic rates</h3>
+                            </div>
+                            <div class="network-stats">
+                                <div class="net-metric">
+                                    <i class="fa-solid fa-arrow-down download-icon"></i>
+                                    <div class="net-text">
+                                        <span class="net-label">DOWNLOAD</span>
+                                        <span class="net-value" id="net-down-txt">0.000 <span class="unit">MB/s</span></span>
+                                    </div>
+                                </div>
+                                <div class="net-metric">
+                                    <i class="fa-solid fa-arrow-up upload-icon"></i>
+                                    <div class="net-text">
+                                        <span class="net-label">UPLOAD</span>
+                                        <span class="net-value" id="net-up-txt">0.000 <span class="unit">MB/s</span></span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="chart-container-mini">
+                                <canvas id="networkChart"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- Real-time historical chart -->
+                        <div class="glass-card chart-card-large margin-top">
+                            <div class="card-header">
+                                <h3><i class="fa-solid fa-chart-line icon-purple"></i> Telemetry Stream (Last 15 seconds)</h3>
+                            </div>
+                            <div class="chart-container-large">
+                                <canvas id="telemetryChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right: AI Chat Diagnostics -->
+                    <div class="overview-right">
+                        <div class="glass-card chat-card">
+                            <div class="chat-header">
+                                <div class="chat-header-title">
+                                    <i class="fa-solid fa-brain icon-purple animate-pulse"></i>
+                                    <span>AetherMonitor AI Diagnostic Terminal</span>
+                                </div>
+                                <span class="badge badge-purple">Heuristics v1.2</span>
+                            </div>
+                            
+                            <div class="chat-messages-container" id="chat-messages-container">
+                                <div class="message system-msg">
+                                    <div class="msg-header">
+                                        <i class="fa-solid fa-brain"></i> <span>AetherMonitor AI Diagnostic</span>
+                                    </div>
+                                    <div class="msg-content">
+                                        <p>Greetings. I am your local diagnostic interface. I track hardware utilization, Python runtimes, and benchmark results.</p>
+                                        <p>Click a shortcut trigger below or submit your own performance diagnostic query.</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="chat-shortcuts">
+                                <button class="chat-shortcut-btn" data-query="why is my RAM spiking?">
+                                    <i class="fa-solid fa-memory"></i> RAM Spike Analysis
+                                </button>
+                                <button class="chat-shortcut-btn" data-query="which python process is slowing my PC?">
+                                    <i class="fa-solid fa-code"></i> Python CPU Diagnostics
+                                </button>
+                                <button class="chat-shortcut-btn" data-query="compare latest benchmarks">
+                                    <i class="fa-solid fa-chart-simple"></i> Benchmark Comparisons
+                                </button>
+                            </div>
+
+                            <div class="chat-input-row">
+                                <input type="text" id="chat-input" placeholder="Query systems diagnostics (e.g. 'explain slowdowns')...">
+                                <button id="chat-send-btn" class="chat-send-btn"><i class="fa-solid fa-paper-plane"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB: PROCESSES -->
+            <section id="tab-processes" class="tab-pane">
+                <div class="flex-header margin-bottom">
+                    <div class="pane-header">
+                        <h2>Active System Allocations</h2>
+                        <p>Real-time footprint of running processes ordered by CPU/RAM footprints</p>
+                    </div>
+                    <div class="search-box">
+                        <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                        <input type="text" id="proc-search" placeholder="Search PID, name or cmdline...">
+                    </div>
+                </div>
+
+                <div class="glass-card table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="width: 80px;">PID</th>
+                                <th style="width: 250px;">Process Name</th>
+                                <th style="width: 100px;">CPU %</th>
+                                <th style="width: 120px;">RAM Footprint</th>
+                                <th>Active Path / Command Arguments</th>
+                            </tr>
+                        </thead>
+                        <tbody id="proc-tbody">
+                            <tr>
+                                <td colspan="5" class="text-center">Querying active task scheduler processes...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- TAB: DOCKER -->
+            <section id="tab-docker" class="tab-pane">
+                <div class="pane-header">
+                    <h2>Docker Container Runtimes</h2>
+                    <p>Docker container namespaces, socket connectivity, and virtualization health checks</p>
+                </div>
+
+                <!-- Panel when Docker daemon is not active -->
+                <div id="docker-offline" class="glass-card docker-status-panel hide">
+                    <i class="fa-solid fa-circle-exclamation docker-alert-icon"></i>
+                    <h3>Docker Daemon Inactive / Unreachable</h3>
+                    <p>AetherMonitor failed to establish connection to the local Docker socket. Ensure Docker Desktop is active or the service daemon is loaded on the workstation host.</p>
+                </div>
+
+                <!-- Panel when Docker daemon is online -->
+                <div id="docker-online" class="docker-dashboard">
+                    <div class="docker-summary-grid">
+                        <div class="glass-card docker-summary-card">
+                            <span class="label">TOTAL CONTAINERS</span>
+                            <span class="value" id="docker-total-txt">--</span>
+                        </div>
+                        <div class="glass-card docker-summary-card">
+                            <span class="label">RUNNING</span>
+                            <span class="value" id="docker-running-txt" style="color: var(--green);">--</span>
+                        </div>
+                        <div class="glass-card docker-summary-card">
+                            <span class="label">STOPPED</span>
+                            <span class="value" id="docker-stopped-txt" style="color: var(--rose);">--</span>
+                        </div>
+                    </div>
+
+                    <div class="glass-card table-container margin-top">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th style="width: 120px;">Container ID</th>
+                                    <th style="width: 200px;">Container Name</th>
+                                    <th>Image Configuration</th>
+                                    <th style="width: 150px;">Runtime State</th>
+                                    <th style="width: 100px;">CPU Utilization</th>
+                                    <th style="width: 120px;">RAM Allocation</th>
+                                </tr>
+                            </thead>
+                            <tbody id="docker-tbody">
+                                <tr>
+                                    <td colspan="6" class="text-center">Loading virtualization metadata table...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB: APIS -->
+            <section id="tab-apis" class="tab-pane">
+                <div class="pane-header">
+                    <h2>Network APIs & External Latency</h2>
+                    <p>Verify WAN route connectivity, packet latencies, and service integrity checkers</p>
+                </div>
+
+                <div class="api-split">
+                    <!-- Large display ping -->
+                    <div class="glass-card api-half">
+                        <h3>Local DNS Route Gateway</h3>
+                        <div class="latency-large">
+                            <span class="lat-val" id="dns-latency-txt">-- <span class="unit">ms</span></span>
+                            <span class="lat-label">PRIMARY CLOUDFLARE RESOLVER</span>
+                        </div>
+                    </div>
+
+                    <!-- API list checklist -->
+                    <div class="glass-card api-half">
+                        <h3>Dependency Services Ping Checklist</h3>
+                        <div class="api-list" id="api-list-container">
+                            <div class="text-center pad-all">Querying external packet responses...</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB: BENCHMARKS -->
+            <section id="tab-benchmarks" class="tab-pane">
+                <div class="pane-header">
+                    <h2>System Performance Benchmarks</h2>
+                    <p>Trigger parallel Prime Sieves, memory bandwidth copies, and direct disk IO benchmark parameters</p>
+                </div>
+
+                <div class="bench-layout">
+                    <!-- Trigger and controls -->
+                    <div class="glass-card benchmark-trigger-card">
+                        <div class="trigger-info">
+                            <h3><i class="fa-solid fa-triangle-exclamation icon-yellow"></i> Hardware Loading Warning</h3>
+                            <p>Executing performance benchmarks engages multithreaded loops testing CPU sieving rates, memory copy speeds, and I/O writes. The benchmark leaves 1 core free to ensure system and UI responsiveness.</p>
+                        </div>
+                        <button id="run-bench-btn" class="glow-btn btn-cyan"><i class="fa-solid fa-play"></i> Execute High-Load Benchmarks</button>
+                        
+                        <!-- Overlay loader inside trigger card -->
+                        <div id="bench-loader" class="loader-overlay hide">
+                            <div class="spinner"></div>
+                            <h3>Running Micro-Benchmarks...</h3>
+                            <span>Calculating primes and verifying local disks</span>
+                        </div>
+                    </div>
+
+                    <!-- Latest benchmark results cards -->
+                    <div id="latest-bench-card" class="glass-card benchmark-results-card margin-top hide">
+                        <div class="card-header">
+                            <h3>Latest Run Diagnostics</h3>
+                            <span class="badge" id="bench-timestamp">--</span>
+                        </div>
+                        
+                        <div class="results-grid">
+                            <div class="result-box">
+                                <span class="lbl">CPU PRIME SIEVE</span>
+                                <span class="val" id="bench-cpu-score">--</span>
+                                <span class="desc" style="font-size:10px; color:var(--text-muted);">Primes calculated</span>
+                            </div>
+                            <div class="result-box">
+                                <span class="lbl">SIEVE THREADS</span>
+                                <span class="val" id="bench-cpu-threads">--</span>
+                                <span class="desc" style="font-size:10px; color:var(--text-muted);">Allocated hardware threads</span>
+                            </div>
+                            <div class="result-box">
+                                <span class="lbl">MEMORY COPY</span>
+                                <span class="val" id="bench-mem-bandwidth">--</span>
+                                <span class="desc" style="font-size:10px; color:var(--text-muted);">RAM throughput bandwidth</span>
+                            </div>
+                            <div class="result-box">
+                                <span class="lbl">DISK SEQUENTIAL WRITE</span>
+                                <span class="val" id="bench-disk-write">--</span>
+                                <span class="desc" style="font-size:10px; color:var(--text-muted);">Sequential I/O Write rate</span>
+                            </div>
+                            <div class="result-box">
+                                <span class="lbl">DISK SEQUENTIAL READ</span>
+                                <span class="val" id="bench-disk-read">--</span>
+                                <span class="desc" style="font-size:10px; color:var(--text-muted);">Sequential I/O Read rate</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Mixed history Chart.js canvas -->
+                    <div id="bench-history-card" class="glass-card margin-top hide" style="padding: 20px;">
+                        <h3><i class="fa-solid fa-chart-column icon-cyan"></i> Benchmark Score History</h3>
+                        <div style="position:relative; height: 260px; width: 100%; margin-top: 15px;">
+                            <canvas id="benchmarkHistoryChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB: LOGS -->
+            <section id="tab-logs" class="tab-pane">
+                <div class="flex-header margin-bottom">
+                    <div class="pane-header">
+                        <h2>Windows System Event Logs</h2>
+                        <p>Live event monitor querying warnings, errors, and system audit logs</p>
+                    </div>
+                    <div class="filter-toggles">
+                        <button class="log-filter-btn active" data-filter="ALL">ALL</button>
+                        <button class="log-filter-btn" data-filter="INFO">INFO</button>
+                        <button class="log-filter-btn" data-filter="WARNING">WARNING</button>
+                        <button class="log-filter-btn" data-filter="ERROR">ERROR</button>
+                    </div>
+                </div>
+
+                <div class="glass-card logs-card">
+                    <div class="logs-feed-container" id="logs-stream">
+                        <div class="text-center pad-all">Establishing system event handles...</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB: SETTINGS -->
+            <section id="tab-settings" class="tab-pane">
+                <div class="pane-header">
+                    <h2>System Monitor Settings</h2>
+                    <p>Configure API parameters, credentials, and diagnostic modes</p>
+                </div>
+
+                <div class="glass-card settings-card">
+                    <div class="settings-group">
+                        <h3><i class="fa-solid fa-brain icon-purple"></i> Gemini Generative AI Credentials</h3>
+                        <p class="settings-desc">
+                            AetherMonitor performs local diagnostics using custom heuristics rules offline (RAM spike checking, Python bottlenecks, benchmark trends). 
+                            Paste your **Gemini API Key** below to unlock online diagnostic intelligence, enabling log auditing, complex system performance reasoning, and full troubleshooting conversations.
+                        </p>
+                        
+                        <div class="input-row">
+                            <label for="settings-key-input">Gemini API Key</label>
+                            <input type="password" id="settings-key-input" placeholder="Paste Gemini API Key (e.g. AIzaSy...)...">
+                        </div>
+                    </div>
+
+                    <div class="settings-actions">
+                        <button id="save-settings-btn" class="glow-btn btn-purple"><i class="fa-solid fa-save"></i> Save Configuration</button>
+                        <span id="settings-status-txt" class="status-msg hide">Settings updated!</span>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+    <script type="module" src="app.js"></script>
+</body>
+</html>
