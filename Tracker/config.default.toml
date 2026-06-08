@@ -1,0 +1,33 @@
+# Ultra-Lightweight Windows Executable Habit Tracker Configuration
+
+# Enable or disable active tracking
+tracking_enabled = true
+
+# Active foreground window polling interval (milliseconds)
+active_poll_interval_ms = 1000
+
+# Idle polling interval (milliseconds)
+idle_poll_interval_ms = 5000
+
+# Time of user inactivity before entering idle mode (seconds)
+# Default: 300 (5 minutes)
+idle_threshold_secs = 300
+
+# Automatically start tracker with Windows logon
+auto_start = false
+
+# Database session cache flush interval (minutes)
+# Default: 30 (batches SQLite transactions to protect SSD life)
+db_flush_interval_mins = 30
+
+# List of applications to track
+# Note: category is optional and used for analytics grouping
+[[tracked_apps]]
+exe_name = "chrome.exe"
+enabled = true
+category = "Productivity"
+
+[[tracked_apps]]
+exe_name = "code.exe"
+enabled = true
+category = "Development"
