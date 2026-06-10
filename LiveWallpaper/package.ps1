@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 
-$ProjectDir = "D:\CODE\Utlities\LiveWallpaper"
+$ProjectDir = $PSScriptRoot
 $ReleaseDir = Join-Path -Path $ProjectDir -ChildPath "ReleasePackage"
 $ZipFile = Join-Path -Path $ProjectDir -ChildPath "LiveWallpaper_Release.zip"
 
