@@ -23,6 +23,36 @@ static std::string WStringToUTF8(const std::wstring& wstr) {
 }
 
 // =====================================================================
+// Helper: Safe fast search without SEH
+// =====================================================================
+static bool FastBufferSearch(const char* pData, size_t len, const char* needle_data, size_t needle_len, bool case_sensitive, const char* lower_map) {
+    if (case_sensitive) {
+        std::string_view sv(pData, len);
+        std::string_view n(needle_data, needle_len);
+        return sv.find(n) != std::string_view::npos;
+    } else {
+        if (needle_len <= len) {
+            size_t limit = len - needle_len;
+            for (size_t i = 0; i <= limit; ++i) {
+                if (lower_map[(unsigned char)pData[i]] == needle_data[0]) {
+                    bool match = true;
+                    for (size_t j = 1; j < needle_len; ++j) {
+                        if (lower_map[(unsigned char)pData[i + j]] != needle_data[j]) {
+                            match = false;
+                            break;
+                        }
+                    }
+                    if (match) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    return false;
+}
+
+// =====================================================================
 // WordFinderEngine Implementation
 // =====================================================================
 
@@ -58,11 +88,11 @@ bool WordFinderEngine::IsTextFile(const std::wstring& filename) const {
     return text_extensions_.find(ext) != text_extensions_.end();
 }
 
-// Memory-mapped file search
+// Safe buffered file search
 bool WordFinderEngine::SearchFileContent(const std::wstring& full_path, const std::string& needle, const SearchOptions& options) const {
     if (needle.empty()) return false;
 
-    HANDLE hFile = CreateFileW(full_path.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    HANDLE hFile = CreateFileW(full_path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     if (hFile == INVALID_HANDLE_VALUE) return false;
 
     LARGE_INTEGER fileSize;
@@ -71,28 +101,33 @@ bool WordFinderEngine::SearchFileContent(const std::wstring& full_path, const st
         return false;
     }
 
-    HANDLE hMap = CreateFileMappingW(hFile, NULL, PAGE_READONLY, 0, 0, NULL);
-    if (!hMap) {
+    // Skip files larger than 100MB to prevent memory exhaustion and lag
+    if (fileSize.QuadPart > 100 * 1024 * 1024) {
         CloseHandle(hFile);
         return false;
     }
 
-    const char* pData = static_cast<const char*>(MapViewOfFile(hMap, FILE_MAP_READ, 0, 0, 0));
-    if (!pData) {
-        CloseHandle(hMap);
-        CloseHandle(hFile);
-        return false;
-    }
-
-    bool found = false;
     size_t len = static_cast<size_t>(fileSize.QuadPart);
+    std::vector<char> buffer(len);
+
+    DWORD bytesRead = 0;
+    if (!ReadFile(hFile, buffer.data(), static_cast<DWORD>(len), &bytesRead, NULL)) {
+        CloseHandle(hFile);
+        return false;
+    }
+
+    CloseHandle(hFile);
     
-    // Very basic and fast strstr search for UTF-8/ASCII data.
-    // For production, a custom Boyer-Moore or similar is better, but this is fast enough for memory-mapped files.
+    // Adjust length if file truncated during read
+    if (bytesRead < len) {
+        len = bytesRead;
+    }
+
+    const char* pData = buffer.data();
+    bool found = false;
+    
     if (options.case_sensitive) {
-        // Fast byte-level search using string_view
-        std::string_view sv(pData, len);
-        if (sv.find(needle) != std::string_view::npos) found = true;
+        found = FastBufferSearch(pData, len, needle.data(), needle.size(), true, nullptr);
     } else {
         static char lower_map[256];
         static bool init = false;
@@ -107,30 +142,9 @@ bool WordFinderEngine::SearchFileContent(const std::wstring& full_path, const st
         for (char& c : lower_needle) {
             c = lower_map[(unsigned char)c];
         }
-        size_t n_len = lower_needle.size();
-        if (n_len <= len) {
-            size_t limit = len - n_len;
-            for (size_t i = 0; i <= limit; ++i) {
-                if (lower_map[(unsigned char)pData[i]] == lower_needle[0]) {
-                    bool match = true;
-                    for (size_t j = 1; j < n_len; ++j) {
-                        if (lower_map[(unsigned char)pData[i + j]] != lower_needle[j]) {
-                            match = false;
-                            break;
-                        }
-                    }
-                    if (match) {
-                        found = true;
-                        break;
-                    }
-                }
-            }
-        }
+        
+        found = FastBufferSearch(pData, len, lower_needle.data(), lower_needle.size(), false, lower_map);
     }
-
-    UnmapViewOfFile(pData);
-    CloseHandle(hMap);
-    CloseHandle(hFile);
 
     return found;
 }
